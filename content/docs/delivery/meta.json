@@ -1,0 +1,12 @@
+{
+  "title": "09. CI/CD thực chiến",
+  "pages": [
+    "test-automation",
+    "quality-gates",
+    "container-build",
+    "kubernetes-deployment",
+    "environment-promotion",
+    "rollback",
+    "gitops"
+  ]
+}

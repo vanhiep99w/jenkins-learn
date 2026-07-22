@@ -1,0 +1,16 @@
+{
+  "title": "08. Quản trị & vận hành",
+  "pages": [
+    "system-configuration",
+    "plugin-management",
+    "jcasc",
+    "job-dsl",
+    "cli-rest-api",
+    "backup-restore",
+    "monitoring",
+    "logs",
+    "performance",
+    "scaling",
+    "troubleshooting"
+  ]
+}

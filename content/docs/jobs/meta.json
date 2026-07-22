@@ -1,0 +1,12 @@
+{
+  "title": "03. Jobs & cấu hình build",
+  "pages": [
+    "freestyle",
+    "parameters",
+    "environment-variables",
+    "triggers",
+    "workspace",
+    "artifacts",
+    "multibranch"
+  ]
+}

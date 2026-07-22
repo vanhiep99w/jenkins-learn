@@ -1,0 +1,20 @@
+{
+  "title": "04. Jenkins Pipeline",
+  "pages": [
+    "overview",
+    "jenkinsfile",
+    "declarative",
+    "scripted",
+    "stages-steps",
+    "agents",
+    "environment-parameters",
+    "credentials",
+    "when-input",
+    "parallel",
+    "matrix",
+    "error-handling",
+    "post-actions",
+    "shared-libraries",
+    "testing"
+  ]
+}

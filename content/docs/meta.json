@@ -1,0 +1,17 @@
+{
+  "title": "Jenkins Learn",
+  "pages": [
+    "index",
+    "getting-started",
+    "installation",
+    "jobs",
+    "pipelines",
+    "agents",
+    "integrations",
+    "security",
+    "administration",
+    "delivery",
+    "advanced",
+    "case-studies"
+  ]
+}

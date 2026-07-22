@@ -1,0 +1,13 @@
+{
+  "title": "07. Bảo mật Jenkins",
+  "pages": [
+    "security-model",
+    "authentication",
+    "authorization",
+    "credentials-secrets",
+    "csrf-api-tokens",
+    "controller-hardening",
+    "agent-plugin-security",
+    "audit-compliance"
+  ]
+}

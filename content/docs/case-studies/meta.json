@@ -1,0 +1,10 @@
+{
+  "title": "11. Case Studies",
+  "pages": [
+    "java-maven",
+    "nodejs",
+    "docker-kubernetes",
+    "monorepo",
+    "multi-environment"
+  ]
+}

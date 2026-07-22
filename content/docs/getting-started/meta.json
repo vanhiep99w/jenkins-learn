@@ -1,0 +1,11 @@
+{
+  "title": "01. Nền tảng",
+  "pages": [
+    "overview",
+    "ci-cd-fundamentals",
+    "architecture",
+    "terminology",
+    "requirements",
+    "first-job"
+  ]
+}

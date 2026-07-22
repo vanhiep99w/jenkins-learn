@@ -1,0 +1,11 @@
+{
+  "title": "10. Chủ đề nâng cao",
+  "pages": [
+    "groovy",
+    "shared-library-design",
+    "pipeline-performance",
+    "plugin-development",
+    "high-availability",
+    "platform-engineering"
+  ]
+}

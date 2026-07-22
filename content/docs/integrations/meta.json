@@ -1,0 +1,15 @@
+{
+  "title": "06. Tích hợp công cụ",
+  "pages": [
+    "git",
+    "github",
+    "gitlab",
+    "bitbucket",
+    "maven-gradle",
+    "nodejs",
+    "docker-registry",
+    "sonarqube",
+    "artifact-repositories",
+    "notifications"
+  ]
+}

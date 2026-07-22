@@ -1,0 +1,12 @@
+{
+  "title": "02. Cài đặt & nâng cấp",
+  "pages": [
+    "linux",
+    "docker",
+    "kubernetes",
+    "windows",
+    "initial-setup",
+    "reverse-proxy-tls",
+    "upgrade"
+  ]
+}
