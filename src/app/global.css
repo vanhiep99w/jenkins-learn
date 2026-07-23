@@ -23,6 +23,31 @@ samp {
   font-family: var(--font-mono);
 }
 
-#nd-page article {
+/* Let the docs layout use the full viewport instead of the 97rem default. */
+#nd-docs-layout {
+  --fd-layout-width: 100vw;
+}
+
+@media (min-width: 768px) {
+  #nd-docs-layout {
+    --fd-sidebar-width: 296px;
+  }
+}
+
+@media (min-width: 1280px) {
+  #nd-docs-layout,
+  #nd-toc {
+    --fd-toc-width: 300px;
+  }
+}
+
+/* The docs grid still subtracts the hidden sidebar width when it is collapsed. */
+#nd-docs-layout[data-sidebar-collapsed='true'] {
+  --fd-layout-width: calc(100vw + var(--fd-sidebar-width));
+}
+
+/* Keep only the responsive page gutter; remove the centered 900px content cap. */
+#nd-page {
   max-width: none;
+  margin-inline: 0;
 }
