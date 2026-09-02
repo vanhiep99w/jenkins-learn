@@ -195,7 +195,7 @@ Các thư mục `unit`, `contract` và `smoke` tránh đụng file khi branch d�
 
 ## `failFast`: hủy sớm, không che lỗi
 
-`failFast true` trên stage chứa `parallel` yêu cầu Jenkins hủy các nhánh song song còn đang chạy khi một nhánh fail. Nhánh gây lỗi vẫn giữ log và kết quả lỗi; đây là chính sách tiết kiệm thời gian/agent, không phải `retry` và không biến failure thành success. Nhánh đã hoàn tất trước thời điểm fail vẫn giữ kết quả của nó.
+`failFast true` trên stage chứa `parallel` yêu cầu Jenkins hủy các nhánh song song còn đang chạy khi một nhánh fail. Nhánh gây lỗi vẫn giữ log và kết quả `FAILURE`; kết quả tổng Pipeline cũng giữ `FAILURE`, không đổi thành `ABORTED` chỉ vì các sibling bị hủy. Sibling đang chạy có thể hiện `ABORTED`, còn nhánh đã hoàn tất trước thời điểm fail vẫn giữ kết quả của nó. Đây là chính sách tiết kiệm thời gian/agent, không phải `retry` và không biến failure thành success.
 
 Hủy là một tín hiệu điều phối, không phải bảo đảm process bên ngoài dừng tức thì. Một test runner, upload hay lệnh gọi dịch vụ có thể cần thời gian phản hồi interruption. Thiết kế branch phải có timeout và cleanup idempotent; không để cleanup xóa tài nguyên chung của nhánh khác.
 
@@ -217,18 +217,18 @@ Giao diện Pipeline có thể khác theo plugin/version, nhưng Console Output 
 | Tình huống | Dấu vết branch/stage thường thấy | Ảnh hưởng Pipeline và hành động |
 | --- | --- | --- |
 | **Success** | Lệnh trả mã `0`; branch/stage hoàn tất xanh. | Pipeline chỉ `SUCCESS` khi không có kết quả xấu hơn và fan-in hợp lệ đã chạy. |
-| **Failure** | Step không được xử lý trả non-zero, assertion fail hoặc quality gate fail; branch/stage đỏ. | Pipeline thường là `FAILURE`. Nếu bật `failFast`, các sibling đang chạy được yêu cầu hủy. Mở log từ lỗi đầu tiên, không rerun mù quáng. |
-| **Aborted** | Người dùng dừng build, timeout/interruption, agent mất kết nối hoặc sibling bị hủy do fail-fast. | Stage/branch có thể hiện aborted; Pipeline thường `ABORTED` khi lần chạy bị ngắt. Khi có failure đồng thời, xem log để biết failure gốc và branch nào chỉ là hậu quả bị hủy. |
+| **Failure kích hoạt `failFast`** | Một branch có step không được xử lý trả non-zero, assertion fail hoặc quality gate fail; branch/stage đó đỏ. Sibling còn chạy có thể hiện `ABORTED` vì bị hủy. | Kết quả tổng Pipeline vẫn là `FAILURE`: branch đỏ là nguyên nhân, sibling aborted chỉ là hậu quả. Mở log từ lỗi đầu tiên, không rerun mù quáng. |
+| **Aborted toàn build** | Người dùng chủ động abort build, hoặc timeout/interruption được áp dụng ở phạm vi toàn build khi không có branch `FAILURE` là nguyên nhân. Các stage/branch đang chạy có thể hiện aborted. | Pipeline có thể kết thúc `ABORTED`. Đừng suy ra kết quả tổng từ một sibling aborted: nếu sibling đó bị `failFast` sau branch fail, kết quả tổng vẫn là `FAILURE`. |
 | **Unstable** | Test/report hoặc step chủ động đánh dấu chất lượng chưa đạt; lệnh không nhất thiết crash. | Pipeline có thể là `UNSTABLE` nếu không có `FAILURE`. Đọc report để quyết định có chặn fan-in/release theo policy, thay vì coi vàng là xanh. |
 | **Skipped** | `when` là false, hoặc stage sau không đủ điều kiện để chạy. | Skipped không tự đồng nghĩa failure. Pipeline có thể `SUCCESS` nếu skip được thiết kế; ghi rõ lý do skip trong tên/condition để reviewer phân biệt với lỗi. |
 
-Stage là ranh giới quan sát, còn kết quả Pipeline là tổng hợp cả flow. Vì vậy một branch xanh không phủ nhận failure ở branch khác; một stage `Skipped` cũng không chứng minh lệnh đã chạy. `post { always }` hữu ích để in metadata hoặc publish report ngay cả khi branch fail, nhưng không dùng nó để ghi đè kết quả thật.
+Stage là ranh giới quan sát, còn kết quả Pipeline là tổng hợp cả flow. Vì vậy một branch xanh không phủ nhận failure ở branch khác; một stage `Skipped` cũng không chứng minh lệnh đã chạy. Khi `failFast` xuất hiện, đọc cả cặp nguyên nhân–hậu quả: branch `FAILURE` quyết định Pipeline `FAILURE`, còn sibling `ABORTED` chỉ cho biết Jenkins đã hủy công việc còn lại. `post { always }` hữu ích để in metadata hoặc publish report ngay cả khi branch fail, nhưng không dùng nó để ghi đè kết quả thật.
 
 ### Quy trình đọc log
 
 1. Chọn **đúng build number và revision**, rồi mở Pipeline graph/Stage View để định vị branch có trạng thái xấu nhất.
 2. Mở Console Output của branch đó. Tìm lệnh đầu tiên trả non-zero, timeout hoặc dòng interruption; các dòng cleanup phía sau thường là hậu quả, không phải nguyên nhân.
-3. Với fail-fast, đối chiếu thời điểm branch fail với các branch `Aborted`. Sửa branch fail trước; không mở ticket cho mọi sibling chỉ vì chúng bị hủy.
+3. Với fail-fast, đối chiếu thời điểm branch `FAILURE` với các sibling `ABORTED`. Xác nhận kết quả tổng vẫn là `FAILURE`, rồi sửa branch fail trước; không mở ticket cho mọi sibling chỉ vì chúng bị hủy.
 4. Kiểm tra report, agent label, executor và workspace ghi trong log. Một failure do thiếu toolchain/thiếu capacity khác với assertion ứng dụng.
 5. Tạo build mới sau khi sửa hoặc điều chỉnh parameter lab. Build mới là bằng chứng mới; retry không thay thế chẩn đoán.
 
@@ -289,9 +289,9 @@ Console Output cần có các dấu vết như `unit: PASS`, `contract: PASS`, `
 
 ### Tạo failure và quan sát hủy nhánh
 
-Chạy build mới với `SIMULATE_FAILURE=true`. `Contract checks` in `intentional failure for the lab` rồi trả exit code `1`. Vì stage fan-out có `failFast true`, Jenkins yêu cầu hủy `Slow smoke` nếu branch này còn chạy; branch hoàn tất trước đó có thể vẫn xanh tùy timing. `Fan-in: publish eligible result` không chạy vì kiểm tra bắt buộc đã không đạt.
+Chạy build mới với `SIMULATE_FAILURE=true`. `Contract checks` in `intentional failure for the lab` rồi trả exit code `1`, vì vậy branch này là `FAILURE`. Vì stage fan-out có `failFast true`, Jenkins yêu cầu hủy `Slow smoke` nếu branch này còn chạy; sibling đó có thể hiện `ABORTED`, còn branch hoàn tất trước đó có thể vẫn xanh tùy timing. `Fan-in: publish eligible result` không chạy vì kiểm tra bắt buộc đã không đạt. **Kết quả tổng của build phải là `FAILURE`, không phải `ABORTED`**: failure của `Contract checks` là nguyên nhân đã kích hoạt việc hủy sibling.
 
-Trong log, tìm theo thứ tự: tên `Contract checks`, dòng intentional failure/exit code, rồi dấu vết interruption hoặc `ABORTED` của sibling. Đừng suy luận failure gốc từ `Slow smoke` bị hủy. Giao diện có thể trình bày màu/trạng thái khác giữa các plugin; log và kết quả build mới là dữ liệu quyết định.
+Trong log, tìm theo thứ tự: tên `Contract checks`, dòng intentional failure/exit code, kết quả build `FAILURE`, rồi dấu vết interruption hoặc `ABORTED` của sibling. Đừng suy luận failure gốc hay kết quả tổng từ `Slow smoke` bị hủy. Chỉ khi người dùng abort toàn build hoặc timeout/interruption ở phạm vi toàn build (không phải hệ quả của branch failure) mới quan sát Pipeline `ABORTED`. Giao diện có thể trình bày màu/trạng thái khác giữa các plugin; log và kết quả build mới là dữ liệu quyết định.
 
 ### Xử lý nhánh fail
 
@@ -307,7 +307,7 @@ Không tắt `failFast`, không thêm `retry` và không đổi `catchError` đ�
 - [ ] Workspace/path, port, database/schema và cache có policy cách ly hoặc ownership rõ ràng.
 - [ ] Resource singleton dùng lock phạm vi hẹp, có timeout chờ và cleanup idempotent.
 - [ ] `failFast` được dùng như cancellation policy; branch fail gốc vẫn được đọc và sửa.
-- [ ] Tôi phân biệt `FAILURE`, `ABORTED`, `UNSTABLE` và `Skipped` ở branch/stage với kết quả Pipeline tổng hợp.
+- [ ] Tôi phân biệt `FAILURE`, `ABORTED`, `UNSTABLE` và `Skipped` ở branch/stage với kết quả Pipeline tổng hợp; sibling bị fail-fast hủy không đổi Pipeline `FAILURE` thành `ABORTED`.
 - [ ] Test flaky có bằng chứng điều tra; không bị che bởi retry hoặc nới quality gate.
 - [ ] Pull request/fork không tin cậy không nhận secret production, agent đặc quyền hay cache ghi dùng chung.
 - [ ] Fan-in chỉ publish/triển khai khi các kết quả bắt buộc thỏa policy đã định.
