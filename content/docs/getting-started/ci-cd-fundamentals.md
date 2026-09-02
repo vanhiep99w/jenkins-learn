@@ -121,7 +121,7 @@ Một nguyên tắc quan trọng là **build một lần, dùng cùng artifact �
 
 Quality gate là điều kiện phải đạt trước khi pipeline được phép đi tiếp. Gate có thể là unit test xanh, coverage tối thiểu, không có lỗ hổng ở mức nghiêm trọng đã quy định, review được phê duyệt, hay smoke test staging thành công.
 
-Gate cần có ngưỡng và người sở hữu rõ ràng. Chẳng hạn, “không có lỗi test” là điều kiện khách quan, còn “coverage ít nhất 80%” cần được xem lại khi đội thay đổi loại kiểm thử. Đặt một ngưỡng chỉ để có màu xanh sẽ khuyến khích tối ưu chỉ số thay vì giảm rủi ro. Chi tiết về các loại gate sẽ được mở rộng ở [Quality Gates](/docs/delivery/quality-gates/).
+Gate cần có ngưỡng và người sở hữu rõ ràng. Chẳng hạn, “không có lỗi test” là điều kiện khách quan, còn “coverage ít nhất 80%” cần được xem lại khi đội thay đổi loại kiểm thử. Đặt một ngưỡng chỉ để có màu xanh sẽ khuyến khích tối ưu chỉ số thay vì giảm rủi ro. Khi mở rộng pipeline, hãy ghi rõ từng loại gate, ngưỡng và ngoại lệ được chấp nhận trong quy ước của đội.
 
 ### Feedback loop
 
@@ -195,29 +195,47 @@ pipeline {
   Không hard-code token, mật khẩu hoặc khóa deploy trong file này hay log build. Lưu secret bằng Jenkins Credentials, giới hạn quyền của credential và chỉ cấp cho stage/agent cần thiết.
 </Callout>
 
-Để học cấu trúc và cú pháp đầy đủ hơn, xem [Jenkinsfile](/docs/pipelines/jenkinsfile/) và [Declarative Pipeline](/docs/pipelines/declarative/).
+Để học cấu trúc và cú pháp đầy đủ hơn, dùng hai tài liệu Jenkins chính thức về Pipeline và Pipeline Syntax ở phần nguồn cuối trang.
 
 ## Thực hành: chạy vòng lặp đầu tiên
 
-Lab này giả định bạn đã có một Jenkins controller và quyền tạo Pipeline job. Nếu chưa có môi trường local, hãy cài theo [Jenkins bằng Docker](/docs/installation/docker/) hoặc bắt đầu với [Job đầu tiên](/docs/getting-started/first-job/).
+Lab này giả định bạn đã có một Jenkins controller và quyền tạo Pipeline job. Nếu chưa có môi trường local, hãy cài theo [Jenkins bằng Docker](/docs/installation/docker/).
 
 <Steps>
 <Step>
 
-**Tạo repository mẫu.** Tạo một repository Git rỗng, thêm file `Jenkinsfile` với nội dung ở trên, rồi commit và push. Không cần source application cho lab này vì stage `Build` tự tạo artifact.
+**Tạo repository và chọn branch.** Trên GitHub, GitLab hoặc dịch vụ Git mà bạn kiểm soát, tạo một repository rỗng tên `ci-cd-lab`. Ví dụ dưới đây dùng branch `main`; thay `<your-account>` bằng namespace của bạn và giữ URL khớp với repository vừa tạo. URL minh họa này không phải repository dùng được ngay.
 
 ```bash
 git init ci-cd-lab
 cd ci-cd-lab
-# Tạo Jenkinsfile, dán pipeline ở phần trên, rồi:
-git add Jenkinsfile
-git commit -m "Add first CI pipeline"
+git branch -M main
+git remote add origin https://github.com/<your-account>/ci-cd-lab.git
 ```
+
+<Callout type="warn" title="Kết nối Git an toàn">
+  Không chèn password, personal access token hoặc private key vào URL hay command. Với HTTPS, dùng credential manager hoặc token được hỏi khi Git push; với SSH, dùng SSH key/deploy key đã cấp quyền tối thiểu cho repository. Nếu repository là private, Jenkins cũng cần credential đọc repository được lưu trong Jenkins Credentials.
+</Callout>
 
 </Step>
 <Step>
 
-**Tạo Pipeline job trong Jenkins.** Chọn **New Item** → **Pipeline**, đặt tên `ci-cd-lab`. Trong phần **Pipeline**, chọn **Pipeline script from SCM**, chọn Git, nhập URL repository và branch chứa `Jenkinsfile`. Lưu cấu hình.
+**Thêm Jenkinsfile và push lên remote.** Tạo `Jenkinsfile`, dán pipeline ở phần trên, rồi commit và push branch `main`. Không cần source application cho lab này vì stage `Build` tự tạo artifact.
+
+```bash
+git add Jenkinsfile
+git commit -m "Add first CI pipeline"
+git push -u origin main
+git remote get-url origin
+git branch --show-current
+```
+
+Hai lệnh cuối phải lần lượt in ra URL repository của bạn và `main`. Jenkins sẽ dùng chính URL và branch này.
+
+</Step>
+<Step>
+
+**Tạo Pipeline job trong Jenkins.** Chọn **New Item** → **Pipeline**, đặt tên `ci-cd-lab`. Trong phần **Pipeline**, chọn **Pipeline script from SCM**, chọn **Git**, rồi nhập đúng URL từ `git remote get-url origin` vào **Repository URL**. Chọn credential phù hợp nếu repository private. Đặt **Branch Specifier** là `*/main`, vì `Jenkinsfile` đã được push lên branch `main`, rồi lưu cấu hình.
 
 </Step>
 <Step>
@@ -227,7 +245,15 @@ git commit -m "Add first CI pipeline"
 </Step>
 <Step>
 
-**Tạo feedback có chủ đích.** Sửa dòng `test -s dist/version.txt` thành `test -s dist/missing.txt`, commit rồi chạy lại. Build phải thất bại tại stage `Test`. Khôi phục lệnh đúng và chạy lại để xác nhận tín hiệu thất bại dẫn đến thay đổi sửa lỗi.
+**Tạo feedback có chủ đích.** Sửa dòng `test -s dist/version.txt` thành `test -s dist/missing.txt`, rồi commit và push thay đổi để SCM job có thể lấy revision mới.
+
+```bash
+git add Jenkinsfile
+git commit -m "Demonstrate failing test feedback"
+git push origin main
+```
+
+Chọn **Build Now** lần nữa. Build phải thất bại tại stage `Test`. Khôi phục lệnh đúng, commit và push một lần nữa rồi chạy lại để xác nhận tín hiệu thất bại dẫn đến thay đổi sửa lỗi.
 
 </Step>
 </Steps>
@@ -256,4 +282,4 @@ git commit -m "Add first CI pipeline"
 - [Using Jenkins artifacts](https://www.jenkins.io/doc/pipeline/tour/tests-and-artifacts/): lưu và quản lý artifact của build.
 - [Jenkins Pipeline Syntax](https://www.jenkins.io/doc/book/pipeline/syntax/): tra cứu cú pháp `input`, `when`, `agent` và các step.
 
-Tiếp theo, tìm hiểu [Pipeline là gì?](/docs/pipelines/overview/), cách [tự động hóa kiểm thử](/docs/delivery/test-automation/) và chiến lược [promote giữa các môi trường](/docs/delivery/environment-promotion/).
+Tiếp theo, hãy áp dụng pipeline này cho ứng dụng thật: thêm kiểm thử tự động, quy tắc promote giữa các môi trường và chiến lược rollback phù hợp với mức rủi ro của đội.
