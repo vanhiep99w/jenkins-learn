@@ -210,7 +210,7 @@ Trên agent Windows không có shell Unix, thay bước `sh` bằng `bat 'echo B
 
 Build thành công sẽ có trạng thái `SUCCESS` và console output chứa dòng tương tự `Build #1: Jenkins đang chạy`. Số build có thể khác `1` nếu job đã chạy trước đó. Nếu trạng thái là `FAILURE`, đọc từ dòng lỗi đầu tiên do command hoặc agent báo ra, rồi kiểm tra toolchain và shell của agent trước khi sửa Pipeline.
 
-Sau khi hiểu ví dụ, hãy chuyển sang [Job đầu tiên](/docs/getting-started/first-job) để tạo job theo giao diện, hoặc [Pipeline và Jenkinsfile](/docs/pipelines/jenkinsfile) để đưa quy trình vào repository.
+Sau khi hiểu ví dụ, hãy thử tạo một job từ repository và chuyển script nội tuyến thành `Jenkinsfile` được review cùng mã nguồn.
 
 ## Checklist trước khi đi tiếp
 
