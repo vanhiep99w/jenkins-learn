@@ -100,7 +100,7 @@ Agent tạo hoặc tái sử dụng **workspace** — thư mục local dành cho
 
 Trong lúc chạy, agent gửi console log và cập nhật trạng thái về controller. Job có thể publish artifact hoặc report test; Jenkins liên kết chúng với số build để tải xuống và truy vết. Sau cùng, controller giải phóng executor và chuyển build sang kết quả cuối cùng. Workspace có thể còn lại để tái sử dụng, nên cần chiến lược dọn dẹp và không coi nó là nơi lưu dữ liệu nhạy cảm lâu dài.
 
-Xem thêm [Workspace Management](/docs/jobs/workspace), [Jenkins Pipeline](/docs/pipelines/overview) và [Tổng quan Jenkins Agent](/docs/agents/overview) để đi sâu vào từng phần.
+Khi học sâu hơn, hãy tìm hiểu riêng về quản lý workspace, Jenkins Pipeline và vận hành agent. Trước mắt, hãy nhớ rằng workspace thuộc về agent, còn controller tập hợp log và kết quả để quan sát.
 
 ## Khi build bị chờ trong queue
 
@@ -172,7 +172,7 @@ Nếu Jenkins của bạn chỉ có Windows agent, thay bước `sh` bằng `bat
 
 Thêm agent giúp tách workload và mở rộng năng lực thực thi, nhưng controller vẫn là bộ điều phối trung tâm có trạng thái. Không tạo HA active-active bằng cách để nhiều controller cùng dùng một `JENKINS_HOME`. Khi cần khả năng phục hồi, hãy thiết kế backup, khôi phục và quy trình failover phù hợp thay vì giả định controller tự active-active.
 
-Sau trang này, hãy tạo [job đầu tiên](/docs/getting-started/first-job), học [cú pháp Jenkinsfile](/docs/pipelines/jenkinsfile) và xem [High Availability & DR](/docs/advanced/high-availability) khi vận hành Jenkins ở quy mô lớn hơn.
+Bước tiếp theo, hãy tự tạo một Pipeline nhỏ từ ví dụ ở trên, lưu `Jenkinsfile` cùng source code và thực hành backup/phục hồi theo yêu cầu vận hành của tổ chức khi quy mô tăng lên.
 
 ## Nguồn Jenkins chính thức
 
