@@ -279,7 +279,7 @@ Mở Stage View hoặc giao diện Pipeline đang có trên Jenkins. Build thàn
 ## Đọc tiếp
 
 <Cards>
-  <Card title="Tổng quan Jenkins" href="/docs/getting-started" description="Ôn lại vai trò của Jenkins trong CI/CD." />
+  <Card title="Tổng quan Jenkins" href="/docs/getting-started/overview" description="Ôn lại vai trò của Jenkins trong CI/CD." />
   <Card title="Kiến trúc Jenkins" href="/docs/getting-started/architecture" description="Tìm hiểu controller, agent, executor và workspace." />
   <Card title="Nền tảng CI/CD" href="/docs/getting-started/ci-cd-fundamentals" description="Kết nối Pipeline với feedback loop và release." />
   <Card title="Chạy Jenkins với Docker" href="/docs/installation/docker" description="Tạo môi trường local để thực hành Pipeline." />
