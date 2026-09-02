@@ -6,7 +6,7 @@ description: "Viết Jenkinsfile Declarative dễ đọc, kiểm soát agent, đ
 Declarative Pipeline là cách mô tả Pipeline bằng một khung cố định: người đọc nhìn thấy nơi cấp agent, các stage, điều kiện và xử lý kết quả mà không phải lần theo toàn bộ Groovy. Đây là điểm bắt đầu phù hợp khi một quy trình CI/CD cần được review và vận hành bởi cả nhóm.
 
 <Callout type="info" title="Phạm vi và điều kiện">
-  Cú pháp `pipeline { ... }` là mô hình do plugin **Pipeline: Declarative** cung cấp, không phải Jenkins core đơn lẻ. Pipeline chỉ chạy khi controller có các plugin Pipeline cần thiết, agent phù hợp và các step mà Jenkinsfile gọi đã được cài/cấu hình. Một Jenkinsfile đúng cú pháp vẫn có thể thất bại lúc chạy vì thiếu label, tool, credential hoặc plugin tích hợp.
+  Cú pháp `pipeline { ... }` là mô hình do plugin **Pipeline: Declarative** cung cấp, không phải Jenkins core đơn lẻ. Pipeline chỉ chạy khi controller có các plugin Pipeline cần thiết, agent phù hợp và các step mà Jenkinsfile gọi đã được cài/cấu hình. Mẫu bên dưới dùng `timestamps()`, nên giả định plugin **Timestamper** đã cài; nếu không có, bỏ directive đó trước khi validate. Hai stage phát hành chỉ mô phỏng an toàn bằng cách tạo và kiểm tra một file trong workspace, không kết nối hay triển khai đến môi trường nào. Một Jenkinsfile đúng cú pháp vẫn có thể thất bại lúc chạy vì thiếu label, tool, credential hoặc plugin tích hợp.
 </Callout>
 
 ## Mục lục
@@ -125,7 +125,7 @@ options {
 }
 ```
 
-Đoạn trên đặt chính sách ở cấp Pipeline. `timestamps()` giúp đối chiếu log với sự cố bên ngoài; `disableConcurrentBuilds()` tránh hai lần chạy của cùng job cùng ghi vào một tài nguyên. Khi đặt `timeout` ở cấp stage, Jenkins áp nó trước khi cấp stage agent, vì vậy thời gian chờ cấp agent cũng bị tính vào giới hạn đó.
+Đoạn trên đặt chính sách ở cấp Pipeline. `timestamps()` là step/directive do plugin **Timestamper** cung cấp, giúp đối chiếu log với sự cố bên ngoài; nó không phải một phần của Jenkins core hay Pipeline: Declarative. Chỉ giữ dòng này khi Timestamper đã được cài trên controller; nếu không, xóa riêng `timestamps()` mà không làm thay đổi timeout hay luồng Pipeline. `disableConcurrentBuilds()` tránh hai lần chạy của cùng job cùng ghi vào một tài nguyên. Khi đặt `timeout` ở cấp stage, Jenkins áp nó trước khi cấp stage agent, vì vậy thời gian chờ cấp agent cũng bị tính vào giới hạn đó.
 
 <Callout type="warn" title="Retry không làm deploy an toàn hơn">
   Không đặt `retry` bao quanh thao tác có side effect mà chưa thiết kế idempotent, ví dụ tạo release, trừ tiền hoặc migrate schema. Lần chạy lại có thể thực hiện hành động lần thứ hai. Với deploy, hãy dùng artifact có định danh, kiểm tra trạng thái đích và có rollback rõ ràng.
@@ -172,24 +172,24 @@ when {
 `input` là directive của stage để chờ phê duyệt. Đặt `beforeInput true` trong `when` để Jenkins đánh giá điều kiện trước khi mở hộp approval. Khối `input` ở dưới chỉ hiện khi `DEPLOY_TARGET` là `production`, và chỉ tài khoản/nhóm được cấu hình là `release-managers` mới có thể duyệt.
 
 ```groovy
-stage('Duyệt production') {
+stage('Duyệt gate production') {
   when {
     beforeInput true
     expression { params.DEPLOY_TARGET == 'production' }
   }
   input {
-    message 'Phát hành artifact đã kiểm thử lên production?'
-    ok 'Phát hành'
+    message 'Cho phép Pipeline đi qua gate phát hành production?'
+    ok 'Cho phép'
     submitter 'release-managers'
   }
   agent { label 'linux' }
   steps {
-    sh './deploy-production.sh'
+    sh 'printf "%s\\n" "Approval accepted; no deployment is run in this example."'
   }
 }
 ```
 
-Bọc stage approval bằng `options { timeout(...) }` hoặc có timeout phù hợp ở Pipeline để build không chờ vô thời hạn. Approval kiểm soát thời điểm thực hiện; nó không thay thế phân quyền, review thay đổi, quality gate hay kiểm tra rollback.
+Bọc stage approval bằng `options { timeout(...) }` hoặc có timeout phù hợp ở Pipeline để build không chờ vô thời hạn. Ví dụ trên chỉ xác nhận gate và cố ý không gọi lệnh deploy. Approval kiểm soát thời điểm thực hiện; nó không thay thế phân quyền, review thay đổi, quality gate hay kiểm tra rollback.
 
 ### Post kết thúc có chủ đích
 
@@ -213,7 +213,7 @@ Không dựa vào `post { success }` để suy ra một deploy đã an toàn. N�
 
 ## Jenkinsfile mẫu có thể chạy
 
-Mẫu sau có cú pháp Declarative hoàn chỉnh. Nó giả định job dùng **Pipeline script from SCM**, repository có `Jenkinsfile`, và có agent Unix online mang label `linux`. `checkout scm` vì vậy lấy đúng revision mà job đã cấu hình. Các lệnh chỉ tạo dữ liệu minh họa, nên không cần ứng dụng mẫu hay credential để chạy.
+Mẫu sau có cú pháp Declarative hoàn chỉnh. Nó giả định job dùng **Pipeline script from SCM**, repository có `Jenkinsfile`, có agent Unix online mang label `linux`, và controller đã cài plugin **Timestamper** cho `timestamps()`. `checkout scm` vì vậy lấy đúng revision mà job đã cấu hình. Các stage có chữ “mô phỏng” chỉ tạo rồi kiểm tra file trong workspace; chúng không gọi API, không dùng credential và không triển khai ứng dụng. Nếu controller không có Timestamper, xóa dòng `timestamps()` trước khi chạy mẫu.
 
 ```groovy
 pipeline {
@@ -226,7 +226,7 @@ pipeline {
   }
 
   parameters {
-    choice(name: 'DEPLOY_TARGET', choices: ['staging', 'production'], description: 'Môi trường phát hành')
+    choice(name: 'DEPLOY_TARGET', choices: ['staging', 'production'], description: 'Môi trường được mô phỏng')
     booleanParam(name: 'RUN_EXTENDED_TESTS', defaultValue: false, description: 'Chạy kiểm tra mở rộng')
   }
 
@@ -260,30 +260,40 @@ pipeline {
       }
     }
 
-    stage('Phát hành staging') {
+    stage('Mô phỏng phát hành staging') {
       when {
         beforeAgent true
         expression { params.DEPLOY_TARGET == 'staging' }
       }
       agent { label 'linux' }
       steps {
-        sh 'echo "Deploy the tested artifact to staging here"'
+        sh '''
+          set -eu
+          mkdir -p dist
+          printf 'target=staging build=%s\n' "$BUILD_NUMBER" > dist/simulated-release.txt
+          grep -Fx "target=staging build=$BUILD_NUMBER" dist/simulated-release.txt
+        '''
       }
     }
 
-    stage('Duyệt production') {
+    stage('Duyệt mô phỏng production') {
       when {
         beforeInput true
         expression { params.DEPLOY_TARGET == 'production' }
       }
       input {
-        message 'Phát hành artifact đã kiểm thử lên production?'
-        ok 'Phát hành'
+        message 'Xác nhận chạy mô phỏng phát hành production?'
+        ok 'Chạy mô phỏng'
         submitter 'release-managers'
       }
       agent { label 'linux' }
       steps {
-        sh 'echo "Deploy the tested artifact to production here"'
+        sh '''
+          set -eu
+          mkdir -p dist
+          printf 'target=production approval=accepted build=%s\n' "$BUILD_NUMBER" > dist/simulated-release.txt
+          grep -Fx "target=production approval=accepted build=$BUILD_NUMBER" dist/simulated-release.txt
+        '''
       }
     }
   }
@@ -303,9 +313,9 @@ pipeline {
 
 - `agent none` bảo đảm Pipeline không giữ một executor xuyên suốt thời gian chờ hoặc khi stage bị bỏ qua. Mỗi stage thực thi đều khai báo `agent { label 'linux' }`.
 - `skipDefaultCheckout(true)` tắt checkout tự động của Declarative. Vì thế `checkout scm` trong stage `Kiểm tra` là một hành động rõ ràng, không bị checkout hai lần.
-- `timeout` giới hạn toàn bộ build; `timestamps` thêm thời điểm vào log. Có thể thêm `disableConcurrentBuilds()` khi job ghi vào tài nguyên dùng chung, nhưng không dùng nó để che lỗi cạnh tranh cần được sửa trong ứng dụng.
-- `parameters` mô tả hai lựa chọn có kiểm soát. `when` đọc các lựa chọn đó trước khi cấp agent, nên stage bị bỏ qua không tiêu tốn executor.
-- `input` không xuất hiện cho staging. Với production, Jenkins dừng trước khi cấp stage agent; `submitter` phải khớp user hoặc group đã được cấu hình thực tế trong Jenkins của bạn.
+- `timeout` giới hạn toàn bộ build. `timestamps()` thêm thời điểm vào log và cần plugin Timestamper; nếu plugin không có, bỏ dòng đó thay vì giả định Jenkins core hỗ trợ. Có thể thêm `disableConcurrentBuilds()` khi job ghi vào tài nguyên dùng chung, nhưng không dùng nó để che lỗi cạnh tranh cần được sửa trong ứng dụng.
+- `parameters` mô tả hai lựa chọn mô phỏng có kiểm soát. `when` đọc các lựa chọn đó trước khi cấp agent, nên stage bị bỏ qua không tiêu tốn executor.
+- Stage staging chỉ ghi rồi kiểm tra `dist/simulated-release.txt`. Với production, Jenkins dừng để duyệt **mô phỏng** trước khi cấp stage agent; sau approval, nó cũng chỉ kiểm tra file đó. `submitter` phải khớp user hoặc group đã được cấu hình thực tế trong Jenkins của bạn.
 - `post { always }` chạy dù Pipeline thành công, thất bại hay bị hủy sau khi đã vào phần thực thi. Nó là vị trí hợp lý cho thông tin kết thúc ngắn gọn, không phải nơi in secret.
 
 <Callout type="idea" title="Kiểm tra trước khi lưu Jenkinsfile">
@@ -333,16 +343,17 @@ Stage agent tạo một lần cấp executor/workspace riêng. Đây là lợi �
 
 Không hard-code token, mật khẩu, private key hoặc URL có token trong `environment`, parameter, Jenkinsfile, shell command hay log. Thay vào đó, tạo credential trong Jenkins với phạm vi và quyền tối thiểu. `credentials('credential-id')` trong `environment` là helper của Declarative; `withCredentials` là step thường được cung cấp bởi plugin Credentials Binding. Cả hai phụ thuộc credential đã tồn tại và quyền job cho phép dùng nó.
 
-Ví dụ dưới chỉ cấp secret cho block deploy ngắn nhất có thể. `DEPLOY_TOKEN` là tên biến môi trường tạm, còn `deploy-token` là ID credential đã tạo trong Jenkins.
+Ví dụ dưới chỉ cấp credential cho một block kiểm tra scope ngắn nhất có thể. `DEPLOY_TOKEN` là tên biến môi trường tạm, còn `deploy-token` là ID credential đã tạo trong Jenkins. Nó không được dùng trong lab hay để chạy deploy; chỉ xác nhận rằng binding có mặt mà không in giá trị.
 
 ```groovy
-stage('Deploy') {
+stage('Kiểm tra scope credential') {
   agent { label 'trusted-deploy' }
   steps {
     withCredentials([string(credentialsId: 'deploy-token', variable: 'DEPLOY_TOKEN')]) {
       sh '''
         set +x
-        ./deploy.sh --token "$DEPLOY_TOKEN"
+        test -n "$DEPLOY_TOKEN"
+        printf '%s\n' 'Credential was bound only in this block.'
       '''
     }
   }
@@ -372,18 +383,18 @@ So với Scripted Pipeline, Declarative hy sinh một phần tự do Groovy đ�
 
 ## Lab từng bước
 
-Lab này chạy được mà không cần application thật. Bạn cần Jenkins có Pipeline: Declarative, một agent Unix online mang label `linux`, và quyền tạo Pipeline job. Nếu chưa có Jenkins local, hãy bắt đầu bằng [Chạy Jenkins với Docker](/docs/installation/docker). Trước đó, kiểm tra [Yêu cầu hệ thống](/docs/getting-started/requirements) để biết agent cần Java, disk và network phù hợp.
+Lab này chạy được mà không cần application thật. Bạn cần Jenkins có Pipeline: Declarative, plugin **Timestamper** cho dòng `timestamps()`, một agent Unix online mang label `linux`, và quyền tạo Pipeline job. Nếu không cài Timestamper, xóa dòng `timestamps()` trong mẫu trước khi validate; các kết quả còn lại không đổi. Nếu chưa có Jenkins local, hãy bắt đầu bằng [Chạy Jenkins với Docker](/docs/installation/docker). Trước đó, kiểm tra [Yêu cầu hệ thống](/docs/getting-started/requirements) để biết agent cần Java, disk và network phù hợp.
 
 1. **Tạo repository.** Tạo repository Git rỗng, tạo file tên chính xác `Jenkinsfile`, rồi dán mẫu ở phần trên. Commit và push file. Mẫu dùng `checkout scm`, nên job phải lấy Jenkinsfile từ SCM thay vì dán script trực tiếp trong UI.
 2. **Tạo Pipeline job.** Trong Jenkins chọn **New Item** → **Pipeline**. Ở phần Pipeline, chọn **Pipeline script from SCM**, chọn Git, nhập repository URL, chọn credential đọc repository nếu nó private, rồi đặt branch đúng với branch đã push.
 3. **Xác minh agent.** Vào **Manage Jenkins** → **Nodes** và xác nhận có node `Online`, mang label `linux`, có shell Unix và executor trống. Đừng đổi mẫu thành `agent any` chỉ để bỏ qua sự thiếu hụt hạ tầng; hãy sửa label hoặc cấu hình agent theo nhu cầu thật.
 4. **Kiểm tra cú pháp.** Mở **Pipeline Syntax** và **Declarative Directive Generator** trong Jenkins để đối chiếu directive/step. Chạy validator nếu Jenkins của bạn cung cấp. Sửa lỗi cấu trúc trước khi chọn **Build Now**.
-5. **Chạy staging.** Chọn **Build with Parameters**, để `DEPLOY_TARGET=staging` và bỏ chọn `RUN_EXTENDED_TESTS`. Build cần hoàn thành `Kiểm tra`, bỏ qua `Kiểm tra mở rộng`, chạy `Phát hành staging` và bỏ qua approval production.
+5. **Chạy mô phỏng staging.** Chọn **Build with Parameters**, để `DEPLOY_TARGET=staging` và bỏ chọn `RUN_EXTENDED_TESTS`. Build cần hoàn thành `Kiểm tra`, bỏ qua `Kiểm tra mở rộng`, chạy `Mô phỏng phát hành staging` và bỏ qua approval production. Console log phải in dòng `target=staging build=<số-build>` từ lệnh `grep`; đó là kết quả kiểm chứng của mô phỏng.
 6. **Quan sát điều kiện.** Chạy lại với `RUN_EXTENDED_TESTS=true`. Stage mở rộng sẽ xuất hiện và chạy. Đặt lại `false` để xác nhận `when` thật sự bỏ qua stage thay vì chỉ đổi nội dung lệnh.
-7. **Thử approval.** Chọn `DEPLOY_TARGET=production`. Build phải dừng ở `Duyệt production`. Duyệt bằng tài khoản thuộc `release-managers`, hoặc hủy build nếu lab chưa có group đó. Nếu group chưa tồn tại, thay `submitter` bằng user/group lab có quyền trước khi chạy.
+7. **Thử approval mô phỏng.** Chọn `DEPLOY_TARGET=production`. Build phải dừng ở `Duyệt mô phỏng production`. Duyệt bằng tài khoản thuộc `release-managers`, hoặc hủy build nếu lab chưa có group đó. Nếu group chưa tồn tại, thay `submitter` bằng user/group lab có quyền trước khi chạy. Khi duyệt, console phải in `target=production approval=accepted build=<số-build>`; không có lệnh nào liên hệ production.
 8. **Tạo lỗi có chủ đích và sửa.** Đổi `test -s dist/build.txt` thành `test -s dist/missing.txt`, commit/push rồi chạy lại. Build phải thất bại tại stage `Kiểm tra` và vẫn in `post { always }`. Khôi phục lệnh đúng, commit/push và chạy lần cuối để xác nhận build xanh.
 
-Kết quả lab cho thấy một Jenkinsfile có thể vừa tường minh về agent, vừa ngăn stage không liên quan chiếm executor, vừa có điểm approval có giới hạn. Khi áp dụng vào dự án, thay các lệnh `echo` deploy bằng lệnh triển khai đã được kiểm thử và có rollback.
+Kết quả lab cho thấy một Jenkinsfile có thể vừa tường minh về agent, vừa ngăn stage không liên quan chiếm executor, vừa có điểm approval có giới hạn. Các stage “mô phỏng” chỉ tạo và xác minh file local trong workspace, nên không deploy, không gọi API và không dùng secret. Khi áp dụng vào dự án, thiết kế riêng bước triển khai đã kiểm thử, quyền tối thiểu và rollback thay vì thay thẳng mô phỏng bằng một lệnh production.
 
 ## Lỗi cú pháp và hành vi ngầm định
 
@@ -414,6 +425,7 @@ Các lỗi thường gặp khác và cách phòng tránh:
 - [ ] Approval có người duyệt, timeout và tiêu chí rõ ràng; nó không thay thế phân quyền hay test.
 - [ ] Secret ở Jenkins Credentials, chỉ xuất hiện trong scope nhỏ nhất và không bị in/lưu trong log, artifact hay workspace.
 - [ ] `post` xử lý tín hiệu/dọn dẹp phù hợp cho `always`, `failure` hoặc `success`.
+- [ ] Nếu dùng `timestamps()`, plugin Timestamper đã được cài và dòng này được kiểm tra trên controller; nếu không, directive đã được bỏ khỏi Jenkinsfile.
 - [ ] Mọi step plugin-dependent đã được kiểm tra trên Jenkins instance bằng Pipeline Syntax và qua một build lab.
 
 ## Nguồn chính thức và đọc tiếp
@@ -423,6 +435,7 @@ Các lỗi thường gặp khác và cách phòng tránh:
 - [Using a Jenkinsfile](https://www.jenkins.io/doc/book/pipeline/jenkinsfile/) — pattern Jenkinsfile, environment, parameters và credentials.
 - [Pipeline Syntax — Global Variable Reference](https://www.jenkins.io/doc/book/pipeline/getting-started/#global-variable-reference) — biến, step và global variables đang có trên Jenkins instance.
 - [Using Jenkins agents](https://www.jenkins.io/doc/book/using/using-agents/) — chọn agent, executor và workspace.
+- [Timestamper plugin](https://plugins.jenkins.io/timestamper/) — dependency cung cấp `timestamps()` trong mẫu.
 
 <Cards>
   <Card title="Tổng quan Jenkins" href="/docs/getting-started/overview" description="Ôn mô hình Jenkins trước khi mở rộng Pipeline." />
