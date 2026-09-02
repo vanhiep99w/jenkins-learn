@@ -137,8 +137,8 @@ options {
 
 ```groovy
 parameters {
-  choice(name: 'DEPLOY_TARGET', choices: ['staging', 'production'], description: 'Môi trường được phép phát hành')
-  booleanParam(name: 'RUN_EXTENDED_TESTS', defaultValue: false, description: 'Chạy bộ test tốn thời gian')
+  choice(name: 'DEPLOY_TARGET', choices: ['staging', 'production'], description: 'Môi trường được mô phỏng')
+  booleanParam(name: 'RUN_EXTENDED_SANDBOX_CHECK', defaultValue: false, description: 'Chạy kiểm tra sandbox mở rộng')
 }
 
 environment {
@@ -150,11 +150,11 @@ Dùng parameter để người khởi tạo chọn trong một tập giá trị 
 
 ### When và input kiểm soát đường đi
 
-`when` quyết định một stage có chạy hay bị đánh dấu `skipped`. Ví dụ dưới chỉ chạy extended test khi người dùng đã chọn nó:
+`when` quyết định một stage có chạy hay bị đánh dấu `skipped`. Ví dụ dưới chỉ chạy kiểm tra sandbox mở rộng khi người dùng đã chọn nó:
 
 ```groovy
 when {
-  expression { params.RUN_EXTENDED_TESTS }
+  expression { params.RUN_EXTENDED_SANDBOX_CHECK }
 }
 ```
 
@@ -227,7 +227,7 @@ pipeline {
 
   parameters {
     choice(name: 'DEPLOY_TARGET', choices: ['staging', 'production'], description: 'Môi trường được mô phỏng')
-    booleanParam(name: 'RUN_EXTENDED_TESTS', defaultValue: false, description: 'Chạy kiểm tra mở rộng')
+    booleanParam(name: 'RUN_EXTENDED_SANDBOX_CHECK', defaultValue: false, description: 'Chạy kiểm tra sandbox mở rộng')
   }
 
   environment {
@@ -249,14 +249,19 @@ pipeline {
       }
     }
 
-    stage('Kiểm tra mở rộng') {
+    stage('Kiểm tra sandbox mở rộng') {
       when {
         beforeAgent true
-        expression { params.RUN_EXTENDED_TESTS }
+        expression { params.RUN_EXTENDED_SANDBOX_CHECK }
       }
       agent { label 'linux' }
       steps {
-        sh 'echo "Run extended tests for $APP_NAME here"'
+        sh '''
+          set -eu
+          mkdir -p dist
+          printf 'sandbox-check=extended app=%s build=%s\n' "$APP_NAME" "$BUILD_NUMBER" > dist/extended-sandbox-check.txt
+          grep -Fx "sandbox-check=extended app=$APP_NAME build=$BUILD_NUMBER" dist/extended-sandbox-check.txt
+        '''
       }
     }
 
@@ -314,7 +319,7 @@ pipeline {
 - `agent none` bảo đảm Pipeline không giữ một executor xuyên suốt thời gian chờ hoặc khi stage bị bỏ qua. Mỗi stage thực thi đều khai báo `agent { label 'linux' }`.
 - `skipDefaultCheckout(true)` tắt checkout tự động của Declarative. Vì thế `checkout scm` trong stage `Kiểm tra` là một hành động rõ ràng, không bị checkout hai lần.
 - `timeout` giới hạn toàn bộ build. `timestamps()` thêm thời điểm vào log và cần plugin Timestamper; nếu plugin không có, bỏ dòng đó thay vì giả định Jenkins core hỗ trợ. Có thể thêm `disableConcurrentBuilds()` khi job ghi vào tài nguyên dùng chung, nhưng không dùng nó để che lỗi cạnh tranh cần được sửa trong ứng dụng.
-- `parameters` mô tả hai lựa chọn mô phỏng có kiểm soát. `when` đọc các lựa chọn đó trước khi cấp agent, nên stage bị bỏ qua không tiêu tốn executor.
+- `parameters` mô tả một kiểm tra sandbox và một lựa chọn mô phỏng có kiểm soát. `when` đọc các lựa chọn đó trước khi cấp agent, nên stage bị bỏ qua không tiêu tốn executor.
 - Stage staging chỉ ghi rồi kiểm tra `dist/simulated-release.txt`. Với production, Jenkins dừng để duyệt **mô phỏng** trước khi cấp stage agent; sau approval, nó cũng chỉ kiểm tra file đó. `submitter` phải khớp user hoặc group đã được cấu hình thực tế trong Jenkins của bạn.
 - `post { always }` chạy dù Pipeline thành công, thất bại hay bị hủy sau khi đã vào phần thực thi. Nó là vị trí hợp lý cho thông tin kết thúc ngắn gọn, không phải nơi in secret.
 
@@ -389,8 +394,8 @@ Lab này chạy được mà không cần application thật. Bạn cần Jenkin
 2. **Tạo Pipeline job.** Trong Jenkins chọn **New Item** → **Pipeline**. Ở phần Pipeline, chọn **Pipeline script from SCM**, chọn Git, nhập repository URL, chọn credential đọc repository nếu nó private, rồi đặt branch đúng với branch đã push.
 3. **Xác minh agent.** Vào **Manage Jenkins** → **Nodes** và xác nhận có node `Online`, mang label `linux`, có shell Unix và executor trống. Đừng đổi mẫu thành `agent any` chỉ để bỏ qua sự thiếu hụt hạ tầng; hãy sửa label hoặc cấu hình agent theo nhu cầu thật.
 4. **Kiểm tra cú pháp.** Mở **Pipeline Syntax** và **Declarative Directive Generator** trong Jenkins để đối chiếu directive/step. Chạy validator nếu Jenkins của bạn cung cấp. Sửa lỗi cấu trúc trước khi chọn **Build Now**.
-5. **Chạy mô phỏng staging.** Chọn **Build with Parameters**, để `DEPLOY_TARGET=staging` và bỏ chọn `RUN_EXTENDED_TESTS`. Build cần hoàn thành `Kiểm tra`, bỏ qua `Kiểm tra mở rộng`, chạy `Mô phỏng phát hành staging` và bỏ qua approval production. Console log phải in dòng `target=staging build=<số-build>` từ lệnh `grep`; đó là kết quả kiểm chứng của mô phỏng.
-6. **Quan sát điều kiện.** Chạy lại với `RUN_EXTENDED_TESTS=true`. Stage mở rộng sẽ xuất hiện và chạy. Đặt lại `false` để xác nhận `when` thật sự bỏ qua stage thay vì chỉ đổi nội dung lệnh.
+5. **Chạy mô phỏng staging.** Chọn **Build with Parameters**, để `DEPLOY_TARGET=staging` và bỏ chọn `RUN_EXTENDED_SANDBOX_CHECK`. Build cần hoàn thành `Kiểm tra`, bỏ qua `Kiểm tra sandbox mở rộng`, chạy `Mô phỏng phát hành staging` và bỏ qua approval production. Console log phải in dòng `target=staging build=<số-build>` từ lệnh `grep`; đó là kết quả kiểm chứng của mô phỏng.
+6. **Quan sát kiểm tra sandbox.** Chạy lại với `RUN_EXTENDED_SANDBOX_CHECK=true`. Stage `Kiểm tra sandbox mở rộng` sẽ xuất hiện, tạo `dist/extended-sandbox-check.txt` và in dòng `sandbox-check=extended app=catalog-api build=<số-build>`. Nó chỉ xác minh file local do chính stage tạo, không phải bộ test của ứng dụng. Đặt lại `false` để xác nhận `when` thật sự bỏ qua stage thay vì chỉ đổi nội dung lệnh.
 7. **Thử approval mô phỏng.** Chọn `DEPLOY_TARGET=production`. Build phải dừng ở `Duyệt mô phỏng production`. Duyệt bằng tài khoản thuộc `release-managers`, hoặc hủy build nếu lab chưa có group đó. Nếu group chưa tồn tại, thay `submitter` bằng user/group lab có quyền trước khi chạy. Khi duyệt, console phải in `target=production approval=accepted build=<số-build>`; không có lệnh nào liên hệ production.
 8. **Tạo lỗi có chủ đích và sửa.** Đổi `test -s dist/build.txt` thành `test -s dist/missing.txt`, commit/push rồi chạy lại. Build phải thất bại tại stage `Kiểm tra` và vẫn in `post { always }`. Khôi phục lệnh đúng, commit/push và chạy lần cuối để xác nhận build xanh.
 
