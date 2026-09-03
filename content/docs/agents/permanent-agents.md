@@ -1,58 +1,365 @@
 ---
 title: "Permanent Agents"
-description: "Cấu hình agent lâu dài cho workload ổn định."
+description: "Cấu hình, vận hành và bảo vệ static/permanent Jenkins agent cho workload ổn định."
 ---
 
-# Permanent Agents
+Permanent agent là node có host và cấu hình được giữ lâu dài để phục vụ một pool workload ổn định, ví dụ build cần hardware, toolchain hoặc cache chuyên biệt. Nó giảm thời gian provision, nhưng đổi lại đội vận hành phải chủ động quản lý capacity, dữ liệu tồn lưu, vá lỗi và vòng đời của máy.
 
 ## Mục lục
 
-- [Mục tiêu](#mục-tiêu)
-- [Nội dung cần hoàn thiện](#nội-dung-cần-hoàn-thiện)
-- [Thực hành dự kiến](#thực-hành-dự-kiến)
-- [Checklist hoàn thành](#checklist-hoàn-thành)
-- [Tài liệu tham khảo](#tài-liệu-tham-khảo)
+- [Khi nào dùng permanent agent](#khi-nào-dùng-permanent-agent)
+  - [Permanent không đồng nghĩa với launcher](#permanent-không-đồng-nghĩa-với-launcher)
+  - [Giới hạn và ranh giới tin cậy](#giới-hạn-và-ranh-giới-tin-cậy)
+- [Mô hình node, queue và lifecycle](#mô-hình-node-queue-và-lifecycle)
+- [Cấu hình node trong Jenkins](#cấu-hình-node-trong-jenkins)
+  - [Node configuration](#node-configuration)
+  - [Labels và executors](#labels-và-executors)
+  - [Remote root directory](#remote-root-directory)
+- [Launcher và kết nối](#launcher-và-kết-nối)
+  - [Inbound agent và WebSocket](#inbound-agent-và-websocket)
+  - [SSH launcher và các giả định plugin](#ssh-launcher-và-các-giả-định-plugin)
+  - [Phân biệt Jenkins core, UI và plugin](#phân-biệt-jenkins-core-ui-và-plugin)
+- [Toolchain, filesystem và workspace](#toolchain-filesystem-và-workspace)
+  - [Quyền tối thiểu và ownership](#quyền-tối-thiểu-và-ownership)
+  - [Chuẩn hóa toolchain và dọn dữ liệu](#chuẩn-hóa-toolchain-và-dọn-dữ-liệu)
+- [Retention, maintenance và không gián đoạn build](#retention-maintenance-và-không-gián-đoạn-build)
+  - [Chọn retention strategy](#chọn-retention-strategy)
+  - [Drain, temporarily offline và maintenance mode](#drain-temporarily-offline-và-maintenance-mode)
+  - [Reconnect và trở lại phục vụ](#reconnect-và-trở-lại-phục-vụ)
+- [Capacity, isolation và bảo mật](#capacity-isolation-và-bảo-mật)
+  - [Sizing pool ổn định](#sizing-pool-ổn-định)
+  - [Controller và security boundary](#controller-và-security-boundary)
+  - [Credential, secret và pull request fork](#credential-secret-và-pull-request-fork)
+  - [Patching và ownership vận hành](#patching-và-ownership-vận-hành)
+- [Jenkinsfile mẫu an toàn](#jenkinsfile-mẫu-an-toàn)
+- [Lab sandbox: tạo và drain một permanent agent](#lab-sandbox-tạo-và-drain-một-permanent-agent)
+  - [Điều kiện lab](#điều-kiện-lab)
+  - [Các bước thực hiện](#các-bước-thực-hiện)
+  - [Kết quả mong đợi](#kết-quả-mong-đợi)
+- [Troubleshooting](#troubleshooting)
+- [Checklist vận hành](#checklist-vận-hành)
+- [Nguồn Jenkins chính thức](#nguồn-jenkins-chính-thức)
+- [Đọc tiếp](#đọc-tiếp)
 
----
+## Khi nào dùng permanent agent
 
-## Mục tiêu
+Chọn permanent/static agent khi số lượng workload tương đối dự đoán được và môi trường chạy cần tồn tại lâu: máy Windows có Visual Studio đã chuẩn hóa, runner có GPU, thiết bị phần cứng, hoặc một toolchain lớn mà provision lại cho mọi build quá tốn thời gian. Node vẫn xuất hiện trong Jenkins khi tiến trình agent tạm mất kết nối; vì vậy cần theo dõi cả **node configuration** lẫn trạng thái kết nối của agent.
 
-> TODO: Mô tả kiến thức và kỹ năng người học đạt được sau khi hoàn thành bài này.
+Nếu workload tăng giảm mạnh, cần môi trường mới sau mỗi build, hoặc nhận code không tin cậy từ nhiều tenant, agent dynamic/ephemeral thường là lựa chọn cô lập dễ hơn. Nền tảng controller, queue, executor và workspace được giới thiệu tại [Tổng quan Jenkins](/docs/getting-started/overview) và [Kiến trúc Jenkins](/docs/getting-started/architecture).
 
-## Nội dung cần hoàn thiện
+### Permanent không đồng nghĩa với launcher
 
-### 1. Node configuration
+`Permanent` mô tả lifecycle hạ tầng: host và node được giữ lại sau build. `Inbound`, `SSH` hoặc WebSocket mô tả cách tiến trình agent được khởi chạy/kết nối. Do đó một máy có thể là permanent + inbound, hoặc permanent + SSH-launched.
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Node configuration**.
+| Loại | Host tồn tại sau build? | Ai mở kết nối? | Phù hợp | Điểm cần vận hành |
+| --- | --- | --- | --- | --- |
+| Permanent inbound | Có | Agent chủ động tới controller | Host sau NAT hoặc chỉ cho outbound HTTPS | Service agent, URL/TLS và cơ chế reconnect |
+| Permanent SSH-launched | Có | Controller kết nối SSH đến host | Linux/Unix host do đội quản trị | Host key, account SSH và plugin launcher |
+| Dynamic agent | Thường không | Tùy cloud/plugin | Burst hoặc môi trường ngắn hạn | Template, quota, image và provisioning |
 
-### 2. Remote root directory
+### Giới hạn và ranh giới tin cậy
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Remote root directory**.
+Static agent **không phải security boundary**. `Jenkinsfile`, source, dependency và lệnh build có thể chạy dưới identity của agent. Hai job có workspace khác tên nhưng cùng user OS vẫn có thể để lại cache, process hoặc file mà job khác tác động được. Labels chỉ giúp scheduler route build; chúng không phải ACL.
 
-### 3. Retention strategy
+<Callout type="warn" title="Tách trust tier thật sự">
+  Không đặt pull request từ fork, workload chưa tin cậy và release dùng credential production lên cùng permanent agent chỉ vì chúng có labels khác nhau. Tách host hoặc VM, identity, network egress, workspace/cache và quyền cloud theo trust tier.
+</Callout>
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Retention strategy**.
+## Mô hình node, queue và lifecycle
 
-### 4. Maintenance mode
+```text
+                 cấu hình node: labels, root, executors, launcher
+                                      │
+                                      ▼
+┌──────────────┐    ┌─────────────┐  ┌───────────────────────────┐
+│ Controller   │───►│ Build Queue │──►│ Permanent agent           │
+│ điều phối    │    │             │  │ executor → workspace      │
+└──────────────┘    └─────────────┘  │ toolchain + service user  │
+                       ▲              └─────────────┬─────────────┘
+                       │ không có node phù hợp                    │ log/trạng thái
+                       └──────────────────────────────────────────┘
+```
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Maintenance mode**.
+Một build chỉ rời queue khi controller tìm được node `Online`, thỏa label expression và còn executor trống. Sau khi executor được cấp, agent tạo hoặc chọn workspace dưới remote root, chạy step rồi trả executor. `Offline`, `temporarily offline` hoặc agent mất kết nối đều làm capacity của node không còn dùng được cho allocation mới.
 
-## Thực hành dự kiến
+Để tránh controller vừa điều phối vừa chạy code build, cấu hình built-in node/controller với `numExecutors: 0` trong production:
 
-- [ ] TODO: Chuẩn bị môi trường hoặc dữ liệu mẫu.
-- [ ] TODO: Viết bài lab từng bước.
-- [ ] TODO: Thêm lệnh, cấu hình và kết quả mong đợi.
-- [ ] TODO: Bổ sung bài tập tự kiểm tra.
+```yaml
+jenkins:
+  numExecutors: 0
+```
 
-## Checklist hoàn thành
+Giá trị này không tắt controller hoặc queue. Nó chỉ ngăn controller nhận build executor; job chưa có label phù hợp sẽ ở queue và phải được route đến pool agent đúng loại.
 
-- [ ] Nội dung lý thuyết đã được kiểm chứng.
-- [ ] Ví dụ chạy được trên Jenkins LTS hiện hành.
-- [ ] Có lưu ý về bảo mật và vận hành khi phù hợp.
-- [ ] Internal links và hình minh họa đã được cập nhật.
+## Cấu hình node trong Jenkins
 
-## Tài liệu tham khảo
+Tại **Manage Jenkins → Nodes**, tạo node permanent và mở **Configure**. Tên trường và các lựa chọn UI có thể chênh lệch nhẹ giữa Jenkins LTS; ý nghĩa vận hành dưới đây quan trọng hơn việc sao chép một ảnh chụp UI cũ.
 
-- [Jenkins User Documentation](https://www.jenkins.io/doc/)
-- [Jenkins Plugins](https://plugins.jenkins.io/)
-- TODO: Thêm nguồn chính thức liên quan trực tiếp đến chủ đề.
+### Node configuration
+
+| Trường | Ý nghĩa | Quyết định an toàn |
+| --- | --- | --- |
+| **Node name** | Định danh node và self-label. | Dùng tên ổn định như `ci-linux-01`; đừng dùng self-label làm contract chung của Pipeline. |
+| **Description** | Ngữ cảnh hiển thị cho operator. | Ghi owner, trust tier, OS/toolchain, maintenance window và mục đích pool. |
+| **Number of executors** | Số allocation Jenkins tối đa đồng thời trên node. | Bắt đầu `1` cho workload nặng/chưa đo; executor không phải CPU core. |
+| **Remote root directory** | Gốc agent dùng cho remoting và workspace. | Dùng đường dẫn tuyệt đối, riêng cho agent và writable bởi service account. |
+| **Labels** | Contract năng lực cho scheduler. | Diễn tả OS, toolchain và trust, ví dụ `linux java21 ci-sandbox`. |
+| **Usage** | Mức ưu tiên node nhận job không có label. | Với pool chuyên biệt, chỉ để job khớp label dùng node; tránh tiêu thụ nhầm capacity. |
+| **Launch method** | Cách tạo/kết nối process agent. | Chọn theo network flow, quản trị identity và plugin đã được phê duyệt. |
+| **Availability / retention** | Chính sách đưa node online/offline. | Chọn theo lifecycle host và khả năng launcher thực tế hỗ trợ. |
+
+Cấu hình node là một contract: người quản lý node xác nhận toolchain, labels, root directory, executor và launcher phản ánh máy thật. Người viết Pipeline phải yêu cầu đúng contract thay vì dùng `agent any` để bỏ qua lỗi thiếu môi trường.
+
+### Labels và executors
+
+Labels nên mô tả capability có thể kiểm chứng, chẳng hạn `linux`, `java21`, `android`, `ci-sandbox` hoặc `trusted-release`. Một Jenkinsfile yêu cầu `linux && java21 && ci-sandbox` chỉ được chạy ở node có đủ ba labels. Tên host hoặc self-label chỉ phù hợp khi thật sự cần một thiết bị duy nhất; nó làm pool mất khả năng thay thế khi máy offline.
+
+`Number of executors` là giới hạn scheduler, không thêm CPU, RAM, IOPS, Docker daemon hay license. Ví dụ một agent 4 vCPU có `4` executors có thể vẫn OOM hoặc nghẽn disk khi bốn build Gradle chạy cùng lúc. Đo CPU, RAM, I/O wait, disk/inode, queue time và thời lượng build trước khi tăng. Hướng dẫn sâu về biểu thức label, queue và sizing có tại [Labels & Executors](/docs/agents/labels-executors).
+
+### Remote root directory
+
+Remote root phải là **đường dẫn tuyệt đối trên chính agent**, không phải đường dẫn trên controller, URL hoặc relative path. Ví dụ an toàn theo hệ điều hành:
+
+| Hệ điều hành agent | Ví dụ remote root | Không dùng |
+| --- | --- | --- |
+| Linux | `/srv/jenkins-agent` | `jenkins-agent`, `/tmp/jenkins`, `/var/lib/jenkins` của controller |
+| Windows | `D:\JenkinsAgent` | `JenkinsAgent`, `%USERPROFILE%`, thư mục cài controller |
+
+Jenkins/Remoting dùng root này cho file agent và thường đặt workspace bên dưới nó. Đường dẫn cần tồn tại hoặc có thể được tạo bởi account chạy agent, có dung lượng/inode đủ và không trỏ vào `JENKINS_HOME` của controller. Tránh dùng home directory cá nhân, ổ mạng không được kiểm thử locking/latency, hoặc một root chung ghi được giữa trust tier.
+
+Khi nhiều build chạy song song, Jenkins có thể dùng workspace có hậu tố để tránh đụng tên. Điều đó không ngăn một process cùng user đọc thư mục khác. Thiết kế quyền filesystem, user/VM/container riêng và cleanup mới là kiểm soát isolation thực sự.
+
+## Launcher và kết nối
+
+Launcher quyết định agent process xuất hiện và kết nối, không biến host thành một agent an toàn. Trước khi chọn, kiểm tra Java version tương thích, DNS, HTTPS/TLS, firewall, proxy và hướng network flow. Baseline runtime và network xem tại [Yêu cầu hệ thống](/docs/getting-started/requirements).
+
+### Inbound agent và WebSocket
+
+Với inbound, agent chủ động kết nối tới controller. Trong trang cấu hình node, Jenkins hiển thị lệnh/URL phù hợp cho node đó; dùng chính hướng dẫn từ controller lab, lưu agent secret trong secret store hoặc cấu hình service có quyền đọc giới hạn, và không chép secret vào Jenkinsfile, history hoặc console log.
+
+WebSocket đi qua HTTP(S), nên thường chỉ cần agent ra được URL controller qua `443` khi reverse proxy hỗ trợ WebSocket. Inbound TCP dùng cổng agent riêng đã được controller cấu hình; chỉ mở cổng đó từ mạng agent cần thiết. Cả hai đều cần xác minh controller URL và TLS từ agent trước khi coi lỗi là lỗi Jenkins.
+
+Đối với permanent inbound agent, chạy process bằng service manager với user chuyên dụng và chính sách restart có giới hạn. Restart loop không phải health check: nó có thể che DNS/TLS sai, Java không tương thích, disk đầy hoặc controller quá tải.
+
+### SSH launcher và các giả định plugin
+
+SSH-launched agent yêu cầu controller đi đến agent qua SSH. Đây là lựa chọn phù hợp khi controller được phép chủ động vào host và host được quản trị tập trung. Không tắt host-key verification để “cho kết nối được”; lưu và đối chiếu host key theo policy, dùng account SSH chuyên biệt, giới hạn lệnh/quyền và chỉ cấp quyền ghi remote root cần thiết.
+
+SSH launch thường cần plugin launcher, ví dụ SSH Build Agents Plugin. Plugin, version, credential type, Java location và implementation launcher không phải lời hứa cố định của Jenkins core. Kiểm tra plugin đã cài, advisory, compatibility với Jenkins LTS và snippet/UI của chính controller trước khi áp dụng.
+
+### Phân biệt Jenkins core, UI và plugin
+
+| Khả năng | Điều có thể kỳ vọng | Điều cần xác minh riêng |
+| --- | --- | --- |
+| Node, labels, executors, remote root, temporary offline | Khái niệm và UI quản lý node của Jenkins core. | Nhãn/wording UI theo phiên bản LTS và quyền authorization hiện có. |
+| Inbound Remoting | Agent kết nối đến controller theo cấu hình node. | Java, transport TCP/WebSocket, reverse proxy, firewall và cách chạy service. |
+| SSH launch | Một launcher có thể cho controller tạo agent qua SSH. | Plugin SSH Build Agents, host-key policy, credential, SSH server và network flow. |
+| Tool Docker/Kubernetes/cloud/metrics | Có thể được Pipeline hoặc provisioning dùng. | Plugin cụ thể, runtime/cluster, quota, RBAC và owner vận hành. |
+
+Nói ngắn gọn: Jenkins core điều phối node và executor; plugin/launcher cùng hạ tầng mới cung cấp chi tiết transport hoặc provision. Không khẳng định một lựa chọn có mặt chỉ vì nó xuất hiện trong bài viết của phiên bản Jenkins khác.
+
+## Toolchain, filesystem và workspace
+
+Permanent agent có lợi thế toolchain luôn sẵn, nhưng cũng tích lũy drift. Ghi version Java, compiler, package manager, browser, SDK và image/runtime cần thiết trong inventory hoặc cấu hình được review. Cài tool qua image/baseline cấu hình có version rõ ràng; không để mỗi Pipeline `curl | sh` vào host để tự chữa thiếu dependency.
+
+### Quyền tối thiểu và ownership
+
+Tạo service account riêng cho agent, chỉ có quyền đọc/chạy toolchain và quyền tạo/sửa/xóa trong remote root cùng các cache đã được phê duyệt. Account đó không cần Administrator/root mặc định, không nên dùng account cá nhân và không cần quyền ghi `JENKINS_HOME` của controller.
+
+| Tài nguyên | Quyền/ownership nên có | Tránh |
+| --- | --- | --- |
+| Remote root và workspace | Agent service account sở hữu; người khác không ghi tùy tiện. | `chmod 777`, share ghi được bởi nhiều team. |
+| Toolchain | Read/execute cho agent; thay đổi qua image/configuration management. | Pipeline tự sửa tool hệ thống không traceable. |
+| Dependency cache | Key/ownership theo project và trust tier, quota/retention rõ. | Cache ghi được chung giữa PR/fork và release. |
+| Artifact | Publish vào kho artifact có policy riêng. | Dùng workspace permanent làm kho artifact/secret lâu dài. |
+| Credential runtime | Chỉ inject scope ngắn nhất của stage tin cậy. | File secret còn lại trong root/cache hoặc console log. |
+
+### Chuẩn hóa toolchain và dọn dữ liệu
+
+Workspace có thể tồn tại sau build. Dọn checkout, file tạm và cache theo policy, đặc biệt trước khi đổi trust tier hoặc đưa node trở lại sau một incident. Có thể giữ cache có chủ đích để giảm thời gian build, nhưng cache cần owner, quota, key phân vùng và cơ chế loại bỏ dữ liệu cũ.
+
+Stage chạy trên agent khác không được giả định thấy cùng filesystem. Hãy checkout lại hoặc truyền artifact qua cơ chế được thiết kế. Cú pháp route stage/Pipeline và lifecycle workspace xem tại [Chọn agent cho Pipeline](/docs/pipelines/agents) và [Declarative Pipeline](/docs/pipelines/declarative).
+
+## Retention, maintenance và không gián đoạn build
+
+### Chọn retention strategy
+
+Tên chính xác của mục **Availability** thay đổi theo Jenkins LTS, launcher và plugin, nhưng các policy thường tương đương bảng sau. Xác nhận UI và help text trên controller trước khi đặt cho production.
+
+| Strategy tương đương | Semantics | Khi hợp lý | Lưu ý với permanent agent |
+| --- | --- | --- | --- |
+| **Always / keep online** | Jenkins cố giữ agent available và launcher có thể reconnect. | Pool nền ổn định, có build thường xuyên. | Lựa chọn mặc định dễ đoán cho host static có service manager. |
+| **Idle / scheduled** | Online/offline theo lịch hoặc khi rảnh sau timeout. | Lab, ca làm việc có giờ cố định, capacity không cần 24/7. | Đừng đặt idle nếu job khẩn có SLO thấp; kiểm tra timezone và hành vi launcher. |
+| **Demand / on demand** | Đưa agent online khi queue cần, tắt khi idle theo policy. | Host có chi phí chạy đáng kể nhưng vẫn giữ cấu hình node. | Chỉ dùng nếu launcher/hạ tầng thật sự có thể start agent/host; inbound agent đang tắt không tự xuất hiện nếu không có cơ chế bên ngoài. |
+
+Retention điều khiển sự sẵn sàng cho allocation mới, không thay thế autoscaling hay khôi phục host. Với static inbound agent, `always` thường cần một service supervisor trên agent để process khởi động sau reboot và reconnect. Với SSH launch, khả năng start/reconnect phụ thuộc plugin, SSH account và host còn hoạt động. Thử policy trong sandbox với đúng Jenkins/plugin version trước khi tin vào nó.
+
+### Drain, temporarily offline và maintenance mode
+
+Trong Jenkins core, **temporarily offline** là tín hiệu không nhận allocation mới kèm lý do cho operator. Nó là công cụ gần nhất để bắt đầu drain, nhưng Jenkins không có một lời hứa portable rằng mọi build đang chạy sẽ được pause, migrate hay khôi phục tự động. Đừng restart/reboot một permanent agent chỉ vì UI đã chuyển màu.
+
+Quy trình bảo trì ít gián đoạn:
+
+1. **Lập kế hoạch capacity.** Xác nhận pool cùng label còn đủ agent/executor cho queue và thông báo maintenance window. Nếu chỉ có một node chuyên dụng, dời workload hoặc chấp nhận queue có chủ đích.
+2. **Drain.** Mark node **temporarily offline** với lý do và ticket/change ID. Xác nhận build mới cần label đó vẫn vào queue hoặc được agent thay thế nhận, thay vì rơi sang controller.
+3. **Chờ rỗng.** Theo dõi trang node, Build Queue và Console Output đến khi executor đang chạy kết thúc. Không coi “offline” là đã không còn process build.
+4. **Bảo trì.** Dừng agent service khi không còn workload, vá OS/Java/toolchain theo change đã phê duyệt, kiểm tra disk/permissions rồi khởi động lại. Không cấp root/Administrator vô điều kiện cho Pipeline để thay việc này.
+5. **Canary và mở lại.** Xác minh agent `Online`, labels/root/toolchain đúng, chạy một build sandbox vô hại rồi đưa node trở lại nhận allocation.
+
+Nếu cần kết thúc một build đang chạy, đánh giá artifact, side effect và timeout/rollback của chính Pipeline trước. Việc disconnect hoặc mất process có thể làm durable Pipeline báo lỗi hoặc chỉ khôi phục một phần tùy step, storage và version; không xem đó là cách drain bình thường.
+
+<Callout type="warn" title="Maintenance mode không di chuyển build">
+  Marking temporarily offline ngăn cấp việc mới. Nó không chuyển workspace hay executor đang chạy sang agent khác, và không thay thế quy trình release/rollback của Pipeline. Luôn drain trước, rồi mới patch hoặc reboot.
+</Callout>
+
+### Reconnect và trở lại phục vụ
+
+Sau reconnect, không lập tức tăng capacity. Kiểm tra node log, agent service log, Java version, DNS/TLS/proxy, remote root free space/inode, labels và executor count. Chạy canary chỉ in metadata/tool version trong pool an toàn. Nếu reconnect lặp lại, ghi thời điểm và mã lỗi rồi xử lý nguyên nhân như network, certificate, proxy WebSocket, resource exhaustion hoặc plugin compatibility thay vì tăng retry vô hạn.
+
+## Capacity, isolation và bảo mật
+
+### Sizing pool ổn định
+
+Đo capacity theo **label pool**, không theo tổng executors toàn Jenkins. Hai executor `linux && java21` không thay được một executor `windows && vs2022`; executor release cũng không nên hấp thụ queue của PR.
+
+Ví dụ, ba permanent agent cùng label `linux java21 ci` có hai executors mỗi máy cho tối đa sáu allocation scheduler. Nếu build Java cùng lúc tiêu thụ RAM và disk lớn, sáu chỉ là giới hạn lịch, không phải cam kết performance. Bắt đầu ít executor, đo queue p95, duration p95, CPU/RAM peak, I/O wait, disk/inode và failure rate; thêm host cùng contract trước khi nhồi thêm executor lên một host.
+
+| Dấu hiệu | Hành động nên xem xét | Không nên làm |
+| --- | --- | --- |
+| Queue dài chỉ ở một label | Thêm/khôi phục agent đúng pool, tối ưu build hoặc tăng capacity sau đo. | Chuyển sang `agent any` hoặc bật executor controller. |
+| Executors bận nhưng host còn headroom | Thử tăng từng executor trong sandbox/staging, đo lại. | Đặt executor bằng số CPU core như quy tắc tuyệt đối. |
+| CPU/RAM/I/O saturation | Giảm concurrency, tách workload nặng hoặc thêm host. | Chỉ tăng executor để queue biến mất. |
+| Một node cần maintenance | Giữ headroom và node thay thế cùng labels. | Drain khi pool không còn capacity hoặc bỏ qua build đang chạy. |
+
+### Controller và security boundary
+
+Controller chứa cấu hình, plugin, credentials và quyền điều phối, vì vậy đặt `numExecutors: 0` và không chạy code build trên built-in node. Permanent agent cũng không tự cô lập code: cùng host/user, Docker socket, privileged container, host mount hoặc quyền cloud rộng có thể biến build thành quyền trên host/hạ tầng.
+
+Dùng VM/host/pool riêng, service identity tối thiểu, network segment/egress policy và workspace/cache partition theo trust. Container đóng gói toolchain tốt nhưng không là boundary mạnh nếu privileged, chạy root hoặc mount Docker socket/hostPath. Tài liệu vận hành controller xem tại [Cài Jenkins trên Linux](/docs/installation/linux), [Cài Jenkins trên Windows](/docs/installation/windows) và [Chạy Jenkins với Docker](/docs/installation/docker).
+
+### Credential, secret và pull request fork
+
+Masking console log chỉ giảm lộ tình cờ. Khi credential được inject, code chạy trong stage thường vẫn có thể đọc biến/file credential; agent đã bị chiếm có thể tìm workspace, cache, process hoặc metadata mà nó có quyền truy cập.
+
+- Không hard-code token, private key hoặc password trong Jenkinsfile, node configuration text, command line, artifact hay remote root.
+- Cấp credential theo folder/job/environment và scope stage nhỏ nhất; tắt shell tracing trước block dùng secret.
+- PR/fork là untrusted cho đến khi policy SCM và review chứng minh khác. Chỉ chạy test sandbox không có credential deploy, registry write, kubeconfig production, Docker socket hoặc network nội bộ nhạy cảm.
+- Tách `trusted-release` khỏi `untrusted-pr` bằng hạ tầng và authorization; label chỉ hỗ trợ route.
+- Khi nghi lộ secret, ngừng cấp vào pool bị ảnh hưởng, thu hồi/rotate theo runbook, giữ evidence cần thiết và điều tra trước khi chạy lại.
+
+### Patching và ownership vận hành
+
+Một permanent agent cần owner rõ cho host OS, Java, toolchain/image, agent service, labels, remote-root storage, capacity, credential scope và decommission. Lập inventory có node name, IP/DNS, trust tier, account service, launcher, plugin dependency, maintenance window và người chịu trách nhiệm.
+
+Vá OS, Java, Jenkins core, plugin launcher và toolchain theo chu kỳ có kiểm thử. Cập nhật controller/plugin có thể làm launcher hoặc Java compatibility đổi; drain agent, test reconnect và chạy canary sau change. Khi retire node, drain, chờ executors rỗng, lưu audit/artifact theo retention, revoke credential/access, dọn hoặc hủy data theo policy rồi mới xóa node configuration và host.
+
+## Jenkinsfile mẫu an toàn
+
+Mẫu Declarative này chỉ dùng agent sandbox permanent có contract rõ. Nó không checkout SCM, không dùng credential và không gọi dịch vụ production. `agent none` tránh giữ executor ngoài stage cần quan sát; `sleep` chỉ để thấy allocation trong lab.
+
+```groovy
+pipeline {
+  agent none
+
+  options {
+    skipDefaultCheckout(true)
+    timeout(time: 3, unit: 'MINUTES')
+  }
+
+  stages {
+    stage('Kiểm tra permanent sandbox') {
+      agent { label 'linux && ci-sandbox && !trusted-release' }
+
+      steps {
+        sh '''
+          set -eu
+          printf 'node=%s\n' "$NODE_NAME"
+          printf 'workspace=%s\n' "$WORKSPACE"
+          test -n "$WORKSPACE"
+          java -version
+          sleep 45
+        '''
+      }
+    }
+  }
+}
+```
+
+Không thay nhãn mẫu bằng `agent any` nếu lab không có node phù hợp. Thay vào đó, tạo pool sandbox đúng contract hoặc đổi ví dụ để khớp capability đã xác minh. Xem cấu trúc Pipeline tại [Tổng quan Pipeline](/docs/pipelines/overview) và [Declarative Pipeline](/docs/pipelines/declarative).
+
+## Lab sandbox: tạo và drain một permanent agent
+
+Lab chỉ dùng một VM/host sandbox, user thường, Java tương thích và lệnh quan sát. Không dùng controller production, repository thật, secret thật, Docker socket, privileged container hoặc network production.
+
+### Điều kiện lab
+
+- Một Jenkins lab; built-in node có `numExecutors: 0`.
+- Một Linux host disposable có Java tương thích, shell `sh`, disk trống và account service không phải root. Nếu dùng Windows, tạo agent Windows và thay `sh` bằng `bat`/PowerShell tương ứng.
+- Một remote root tuyệt đối riêng, ví dụ `/srv/jenkins-agent-lab`, writable bởi account agent; không đặt nó dưới controller `JENKINS_HOME`.
+- Network từ agent đến URL Jenkins lab qua HTTPS nếu dùng inbound/WebSocket. Chỉ cài plugin launcher khi đã chọn launcher đó; lab inbound không yêu cầu SSH plugin.
+
+### Các bước thực hiện
+
+1. Trong **Manage Jenkins → Nodes**, tạo node permanent tên `lab-permanent-linux`. Đặt **Number of executors** là `1`, **Remote root directory** là `/srv/jenkins-agent-lab`, labels là `linux ci-sandbox` và mô tả ghi rõ owner/lab. Chọn usage để chỉ workload khớp label sử dụng node nếu UI phiên bản hiện tại cung cấp lựa chọn này.
+2. Chọn inbound launch cho lab. Từ trang node, lấy lệnh kết nối do Jenkins lab hiển thị và chạy nó bằng account agent theo cơ chế service/terminal lab được kiểm soát. Không dán agent secret vào Jenkinsfile, repository, ticket hay log. Chờ node hiển thị `Online`.
+3. Mở trang node và xác nhận remote root, labels, một executor và Java/toolchain thực tế. Nếu agent offline, dừng ở đây và đọc node log, DNS/TLS, Java, quyền root directory trước khi tạo job.
+4. Tạo Pipeline job không liên kết SCM, dán [Jenkinsfile mẫu an toàn](#jenkinsfile-mẫu-an-toàn), rồi chọn **Build Now**. Khi log in `node=` và `workspace=`, xác nhận đường dẫn workspace nằm dưới remote root kỳ vọng.
+5. Trong lúc build đầu đang `sleep 45`, trigger build thứ hai. Mở **Build Queue**: build thứ hai phải chờ vì pool khớp chỉ có một executor. Nó không được chạy trên controller.
+6. Trên node, chọn **Mark this node temporarily offline** và ghi lý do như `lab drain: verify no new allocations`. Build đang chạy được để kết thúc bình thường. Trigger build thứ ba: nó phải tiếp tục chờ trong queue sau khi build thứ hai đã xong, chứng minh node không nhận allocation mới khi đang drain.
+7. Sau khi executor rỗng, dừng process agent lab, kiểm tra service/log và remote root. Khởi động lại agent, chờ `Online`, xác minh labels/toolchain/root, rồi bỏ trạng thái temporarily offline.
+8. Trigger một build canary từ Jenkinsfile trên. Kết quả xanh cùng `node=` và `workspace=` chứng minh reconnect và phục vụ trở lại. Kết thúc lab bằng cách mark offline, chờ rỗng, dừng agent và xóa node/host sandbox theo policy lab.
+
+### Kết quả mong đợi
+
+| Quan sát | Kết quả đúng | Nếu không đúng |
+| --- | --- | --- |
+| Sau bước 2 | `lab-permanent-linux` là `Online`, có labels `linux ci-sandbox`, root tuyệt đối và 1 executor. | Kiểm tra agent log, Java, DNS/TLS, agent secret và quyền root. |
+| Build đầu | Console in node/workspace; `java -version` chạy trên agent. | So khớp label, remote root và shell/toolchain của agent. |
+| Build thứ hai | Chờ trong queue khi build đầu đang giữ executor. | Kiểm tra có node khác cùng labels hoặc node có hơn một executor. |
+| Sau temporarily offline | Build mới không được cấp vào node; build đang chạy không bị giả định migrate. | Kiểm tra offline reason, trạng thái node và queue reason. |
+| Sau reconnect + canary | Node online, canary thành công trên pool sandbox. | Đọc node/service log và xác minh root, Java, labels trước khi mở lại capacity. |
+
+## Troubleshooting
+
+| Triệu chứng | Kiểm tra theo thứ tự | Hướng xử lý an toàn |
+| --- | --- | --- |
+| Node cấu hình tồn tại nhưng `Offline` | Node log, agent service/process, DNS/TLS, URL controller, Java, firewall/proxy. | Sửa nguyên nhân, khởi động lại có kiểm soát rồi chạy canary; không đổi label để che lỗi. |
+| `Permission denied` hoặc workspace sai chỗ | Absolute remote root, owner/mode của từng parent directory, service identity, disk mount. | Cấp đúng quyền cho account agent trên root riêng; không dùng root/Administrator hoặc quyền rộng vô điều kiện. |
+| Build đứng queue dù có agent rảnh | Label expression, labels thật, offline/drain state, executor count, throttle/lock. | Đọc lý do Build Queue; thêm đúng pool hoặc sửa contract, không bật executor controller. |
+| Agent reconnect liên tục | Service logs, CPU/RAM/OOM, disk/inode, network loss, TLS/proxy WebSocket, Java/plugin change. | Khoanh vùng theo thời gian, sửa network/resource/version và xác minh canary sau reconnect. |
+| Tool version khác kỳ vọng | Inventory/baseline, `PATH`, node label, Java/tool configuration và thay đổi gần đây. | Pin/triển khai lại toolchain qua configuration management, rồi chỉ gán label khi capability thật đã đạt. |
+| Build khác thấy file/cache lạ | Workspace cleanup, cache ownership/key, user chung, trust tier và process nền. | Isolate cache/host/user, dọn dữ liệu theo policy, dùng ephemeral pool cho untrusted workload. |
+| Maintenance làm build lỗi | Có drain trước không, executor đã rỗng chưa, console log/side effect của Pipeline, service event. | Không reboot vội; chờ build hợp lệ kết thúc hoặc xử lý rollback theo Pipeline, rồi sửa runbook/capacity. |
+
+## Checklist vận hành
+
+- [ ] Node có tên, owner, trust tier, launcher, remote root tuyệt đối, labels và mục đích pool được ghi rõ.
+- [ ] Remote root riêng, writable bởi service account tối thiểu, không nằm trong controller `JENKINS_HOME` và có quota/cleanup.
+- [ ] Labels mô tả capability/trust đã kiểm chứng; executor được sizing từ CPU, RAM, I/O, disk và queue theo pool.
+- [ ] Built-in node/controller dùng `numExecutors: 0` trong production.
+- [ ] Launcher network flow, TLS/DNS, Java compatibility, firewall/proxy và plugin dependency đã được kiểm thử theo phiên bản thực tế.
+- [ ] Retention `always`, `idle/scheduled` hoặc `demand` phù hợp khả năng start/reconnect thật của host và launcher.
+- [ ] Maintenance bắt đầu bằng temporarily offline/drain, chờ executor rỗng, bảo trì, reconnect, canary rồi mới mở capacity.
+- [ ] Workspace/cache/artifact có lifecycle, ownership, quota và tách trust tier; static agent không bị coi là security boundary.
+- [ ] PR/fork untrusted không có secret, Docker socket, quyền deploy hoặc network production; credential được scope tối thiểu.
+- [ ] Có owner và lịch patch cho OS, Java, toolchain, Jenkins/plugin launcher; retire node có revoke access và xử lý data theo policy.
+
+## Nguồn Jenkins chính thức
+
+- [Using Jenkins agents](https://www.jenkins.io/doc/book/using/using-agents/) — mô hình agent, launch method, workspace và executor.
+- [Managing nodes](https://www.jenkins.io/doc/book/managing/nodes/) — node configuration, remote root, executors và quản trị node.
+- [Pipeline Syntax](https://www.jenkins.io/doc/book/pipeline/syntax/) — directive `agent`, labels và Declarative Pipeline.
+- [Controller Isolation](https://www.jenkins.io/doc/book/security/controller-isolation/) — tách workload build khỏi controller.
+- [Jenkins Security](https://www.jenkins.io/doc/book/security/) — authorization, credentials và hardening.
+- [Java Support Policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/) — đối chiếu Java với Jenkins LTS.
+- [SSH Build Agents plugin](https://plugins.jenkins.io/ssh-slaves/) — launcher SSH; kiểm tra version và advisory trước khi dùng.
+- [Jenkins Plugins](https://plugins.jenkins.io/) — xác minh plugin launcher/provisioning của chính instance.
+
+## Đọc tiếp
+
+<Cards>
+  <Card title="Tổng quan Jenkins" href="/docs/getting-started/overview" description="Ôn vai trò controller, agent và queue." />
+  <Card title="Kiến trúc Jenkins" href="/docs/getting-started/architecture" description="Hiểu luồng từ queue đến executor và workspace." />
+  <Card title="Labels & Executors" href="/docs/agents/labels-executors" description="Thiết kế contract label và capacity theo pool." />
+  <Card title="Chọn agent cho Pipeline" href="/docs/pipelines/agents" description="Route stage/Pipeline vào agent phù hợp." />
+</Cards>
