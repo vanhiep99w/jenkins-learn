@@ -1,58 +1,435 @@
 ---
 title: "Inbound Agents"
-description: "Kết nối agent chủ động tới controller."
+description: "Thiết lập Jenkins agent chủ động kết nối về controller qua Remoting, WebSocket hoặc inbound TCP một cách an toàn và có thể vận hành."
 ---
 
-# Inbound Agents
+<Callout type="info" title="Phạm vi và giả định">
+  Trang này dành cho agent do đội vận hành kiểm soát, chủ động kết nối tới Jenkins controller. Ví dụ dùng Jenkins LTS, Java tương thích với LTS đó và một node lab; thay URL, tên node, CA và đường dẫn bằng giá trị của bạn. Không chạy các mẫu này trên agent production trước khi đã review network, phiên bản và trust boundary.
+</Callout>
+
+Inbound agent phù hợp khi controller không được phép mở SSH vào máy build, còn máy build có thể mở kết nối outbound đến controller. Điều này giải quyết chiều kết nối, không tự cấp một ranh giới bảo mật: Pipeline vẫn có thể chạy mã từ repository trên chính host agent đó.
 
 ## Mục lục
 
-- [Mục tiêu](#mục-tiêu)
-- [Nội dung cần hoàn thiện](#nội-dung-cần-hoàn-thiện)
-- [Thực hành dự kiến](#thực-hành-dự-kiến)
-- [Checklist hoàn thành](#checklist-hoàn-thành)
-- [Tài liệu tham khảo](#tài-liệu-tham-khảo)
+- [Khi nào dùng inbound agent](#khi-nào-dùng-inbound-agent)
+- [Mô hình kết nối và Jenkins Remoting](#mô-hình-kết-nối-và-jenkins-remoting)
+  - [Luồng kết nối](#luồng-kết-nối)
+  - [Inbound TCP listener và port 50000](#inbound-tcp-listener-và-port-50000)
+  - [WebSocket không phải TCP được bọc lại](#websocket-không-phải-tcp-được-bọc-lại)
+- [Chuẩn bị controller node và mạng](#chuẩn-bị-controller-node-và-mạng)
+  - [Giả định phiên bản và plugin](#giả-định-phiên-bản-và-plugin)
+  - [Firewall DNS proxy và context path](#firewall-dns-proxy-và-context-path)
+- [Agent secret identity và blast radius](#agent-secret-identity-và-blast-radius)
+  - [Secret khác credential ID](#secret-khác-credential-id)
+  - [Lấy lệnh từ controller mà không tạo shell history](#lấy-lệnh-từ-controller-mà-không-tạo-shell-history)
+  - [Rotation và phản ứng khi nghi ngờ lộ lọt](#rotation-và-phản-ứng-khi-nghi-ngờ-lộ-lọt)
+- [Cấu hình WebSocket sau reverse proxy](#cấu-hình-websocket-sau-reverse-proxy)
+  - [TLS và certificate trust](#tls-và-certificate-trust)
+  - [Kiểm tra proxy trước khi khởi động agent](#kiểm-tra-proxy-trước-khi-khởi-động-agent)
+- [Cài agent như service trên Linux](#cài-agent-như-service-trên-linux)
+  - [Tạo thư mục và lấy agentjar](#tạo-thư-mục-và-lấy-agentjar)
+  - [Systemd unit có backoff](#systemd-unit-có-backoff)
+- [Cài agent như service trên Windows](#cài-agent-như-service-trên-windows)
+- [Vòng đời reconnect logging và shutdown](#vòng-đời-reconnect-logging-và-shutdown)
+  - [Trạng thái và reconnect](#trạng-thái-và-reconnect)
+  - [Giám sát và log không nhạy cảm](#giám-sát-và-log-không-nhạy-cảm)
+  - [Drain và shutdown an toàn](#drain-và-shutdown-an-toàn)
+- [Lab local WebSocket từng bước](#lab-local-websocket-từng-bước)
+  - [Điều kiện lab](#điều-kiện-lab)
+  - [Các bước thực hiện](#các-bước-thực-hiện)
+  - [Kết quả mong đợi](#kết-quả-mong-đợi)
+- [Troubleshooting](#troubleshooting)
+- [Checklist trước khi vận hành](#checklist-trước-khi-vận-hành)
+- [Nguồn Jenkins chính thức](#nguồn-jenkins-chính-thức)
+- [Đọc tiếp](#đọc-tiếp)
 
----
+## Khi nào dùng inbound agent
 
-## Mục tiêu
+Controller tạo queue, chọn node theo label và cấp executor; agent mới chạy checkout, test hoặc build. Với **inbound agent**, tiến trình Java trên agent mở kết nối tới controller. Vì vậy nó hợp với host nằm sau NAT, mạng chi nhánh hoặc policy chỉ cho phép outbound HTTPS. Bức tranh controller–agent, queue và executor được trình bày tại [Tổng quan Jenkins](/docs/getting-started/overview), [Kiến trúc Jenkins](/docs/getting-started/architecture) và [Tổng quan về agents](/docs/agents/overview).
 
-> TODO: Mô tả kiến thức và kỹ năng người học đạt được sau khi hoàn thành bài này.
+Không chọn inbound chỉ vì tên gọi. Nếu controller cần truy cập host để quản trị, SSH-launched agent có thể là lựa chọn phù hợp hơn; nếu workload cần môi trường ngắn hạn và cô lập, Kubernetes hoặc container provisioning có thể hợp lý hơn. Inbound mô tả **hướng khởi tạo kết nối**, không nói agent là permanent hay ephemeral, cũng không nói nó đáng tin cậy.
 
-## Nội dung cần hoàn thiện
+<Callout type="warn" title="Không dùng hướng kết nối làm security boundary">
+  Không chạy pull request từ fork, repository không tin cậy hoặc dependency chưa review trên agent tin cậy có workspace, network access hay credential của release. Tách pool, identity, filesystem và egress cho workload không tin cậy; label chỉ hỗ trợ scheduler, không phải ACL.
+</Callout>
 
-### 1. Inbound protocol
+## Mô hình kết nối và Jenkins Remoting
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Inbound protocol**.
+**Jenkins Remoting** là lớp giao tiếp của Jenkins giữa controller và agent. Tiến trình `agent.jar` xác thực danh tính node, thiết lập channel Remoting hai chiều, nhận tác vụ khi controller cấp executor và gửi log/trạng thái về controller. Agent không tự kéo một job bất kỳ từ controller: controller vẫn quyết định queue, label, executor và quyền của job.
 
-### 2. Agent secret
+### Luồng kết nối
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Agent secret**.
+```text
+┌──────────────────────┐       HTTPS/WSS hoặc TCP        ┌──────────────────────┐
+│ Host agent           │ ───────────────────────────────► │ Jenkins controller   │
+│ agent.jar            │   agent chủ động khởi tạo        │ node config + queue  │
+│ service account      │ ◄─────────────────────────────── │ Remoting channel     │
+└──────────┬───────────┘        lệnh, log, trạng thái     └──────────┬───────────┘
+           │                                                         │
+           │ workspace, toolchain                                    │ chọn node theo
+           ▼                                                         ▼ label + executor
+     Pipeline process                                           Build Queue
+```
 
-### 3. WebSocket transport
+Secret gắn agent với node đã cấu hình; URL gắn agent với controller mong đợi. Sau khi channel hoạt động, controller có thể gửi work qua channel đó, nhưng agent không cần một inbound connection từ controller vào host. Điều này đặc biệt quan trọng khi viết firewall rule: mở luồng theo **agent → controller**, không đảo chiều chỉ vì controller là bên điều phối.
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **WebSocket transport**.
+### Inbound TCP listener và port 50000
 
-### 4. Service management
+Inbound TCP dùng một TCP listener cho agent trên controller. Port mặc định thường được minh họa là `50000`, nhưng port thực tế là giá trị đã chọn trong **Manage Jenkins → Security → Agents** hoặc cấu hình tương đương của controller. Với môi trường production, dùng port cố định đã được phê duyệt thay vì port ngẫu nhiên, rồi allowlist nguồn agent ở firewall/VPN/security group.
 
-> TODO: Bổ sung khái niệm, ví dụ và lưu ý thực tế cho **Service management**.
+| Transport | Kết nối mạng | Firewall cần mở | Khi phù hợp |
+| --- | --- | --- | --- |
+| Inbound TCP | Agent → controller TCP listener, ví dụ `50000` | Egress từ agent và ingress vào controller trên port TCP đã cấu hình | Có đường TCP riêng, không đi qua HTTP proxy và đã bảo vệ listener. |
+| Inbound WebSocket | Agent → HTTPS/WSS URL của controller, thường `443` | Egress HTTPS từ agent; proxy/controller nhận WebSocket | Agent chỉ được ra HTTPS hoặc controller ở sau reverse proxy. |
+| SSH-launched | Controller → SSH daemon trên agent | Luồng ngược lại, controller egress đến agent | Controller được phép quản trị host qua SSH. |
 
-## Thực hành dự kiến
+`50000` không phải port bắt buộc của mọi Jenkins agent. Chỉ mở nó khi thật sự chọn inbound TCP và controller đang listen trên port đó. Không mở `50000` để sửa một WebSocket agent offline; nó không dùng listener này.
 
-- [ ] TODO: Chuẩn bị môi trường hoặc dữ liệu mẫu.
-- [ ] TODO: Viết bài lab từng bước.
-- [ ] TODO: Thêm lệnh, cấu hình và kết quả mong đợi.
-- [ ] TODO: Bổ sung bài tập tự kiểm tra.
+### WebSocket không phải TCP được bọc lại
 
-## Checklist hoàn thành
+WebSocket bắt đầu bằng HTTPS rồi HTTP/1.1 `Upgrade` thành một kết nối WebSocket dài. Agent chạy với `-webSocket` và gọi URL base của controller; reverse proxy chuyển WebSocket tới HTTP endpoint của Jenkins. Không chuyển port TCP `50000` vào một `location` HTTP của Nginx và cũng không kỳ vọng header `Upgrade` làm TCP listener hoạt động.
 
-- [ ] Nội dung lý thuyết đã được kiểm chứng.
-- [ ] Ví dụ chạy được trên Jenkins LTS hiện hành.
-- [ ] Có lưu ý về bảo mật và vận hành khi phù hợp.
-- [ ] Internal links và hình minh họa đã được cập nhật.
+WebSocket thường giảm số port cần expose tại edge, nhưng mọi hop vẫn phải hỗ trợ Upgrade và idle timeout dài: load balancer, WAF, CDN, ingress và reverse proxy. Nếu một hop đóng socket sau 60 giây, agent sẽ reconnect dù Jenkins controller hoàn toàn khỏe.
 
-## Tài liệu tham khảo
+## Chuẩn bị controller node và mạng
 
-- [Jenkins User Documentation](https://www.jenkins.io/doc/)
-- [Jenkins Plugins](https://plugins.jenkins.io/)
-- TODO: Thêm nguồn chính thức liên quan trực tiếp đến chủ đề.
+Tạo node tại **Manage Jenkins → Nodes → New Node**, chọn permanent node rồi launch method inbound/WebSocket theo lựa chọn hiện trên controller. Đặt tên ổn định, remote root riêng, labels mô tả capability và trust tier, số executor thận trọng, và service account không có quyền administrator mặc định. Xem chi tiết scheduling ở [Labels và executors](/docs/agents/labels-executors) và cách dùng label trong [Pipeline agents](/docs/pipelines/agents).
+
+Không nhận build trên built-in node/controller trong production. Đặt executor của controller là `0`, sau đó route job sang pool đúng capability. Điều này giảm blast radius khi mã build hoặc plugin có vấn đề, nhưng không thay thế hardening controller.
+
+### Giả định phiên bản và plugin
+
+Mẫu trên trang này giả định:
+
+- Jenkins LTS, Java trên controller và Java chạy `agent.jar` nằm trong ma trận hỗ trợ hiện tại. Đối chiếu [Java Support Policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/) trước khi nâng cấp.
+- `agent.jar` được tải từ **chính controller** đang phục vụ môi trường đó, không lấy bản tùy ý từ mirror hay image cũ. Remoting đi kèm controller cần tương thích với controller.
+- Launch method **WebSocket** xuất hiện trên UI của controller và được tổ chức cho phép. Khả năng này phụ thuộc Jenkins core/Remoting và cấu hình Global Security của version đang chạy; xác nhận bằng node lab thay vì suy luận từ tài liệu của version khác.
+- Plugin không tự nhiên cần cho inbound agent Java cơ bản. Pipeline cần plugin Pipeline phù hợp; wrapper/service manager, cloud provisioner hoặc launcher bổ sung là dependency riêng phải được pin, cập nhật và review.
+
+Không copy nguyên lệnh của một agent cũ sau khi controller nâng LTS hoặc thay proxy. Vào trang node, lấy lệnh hiện hành, đối chiếu URL, `-name`, transport và version Java. Nền tảng Java, disk, DNS và network cần thiết được tổng hợp tại [Yêu cầu hệ thống](/docs/getting-started/requirements).
+
+### Firewall DNS proxy và context path
+
+Trước khi khởi động service, lập bảng luồng thực tế thay vì mở rộng firewall để “thử”.
+
+| Thành phần | Inbound TCP | WebSocket qua proxy | Kiểm tra tối thiểu |
+| --- | --- | --- | --- |
+| Agent firewall | Cho phép outbound đến controller TCP port đã chọn | Cho phép outbound TCP `443` đến hostname proxy | DNS resolve hostname canonical và chỉ thấy luồng cần thiết. |
+| Edge firewall | Cho phép subnet/VPN agent vào TCP listener | Cho phép HTTPS đến proxy theo policy | Không public upstream controller chỉ để debug. |
+| Controller firewall | Nhận TCP listener nếu dùng TCP | Chỉ nhận từ proxy/private network khi proxy terminate TLS | Allowlist proxy hoặc subnet rõ ràng. |
+| Reverse proxy | Không áp dụng cho TCP listener thông thường | Chuyển HTTP/1.1 Upgrade, giữ socket idle đủ lâu | `101 Switching Protocols` và log upgrade thành công. |
+
+Controller URL, reverse proxy và agent phải dùng một URL canonical. Nếu Jenkins được public tại `https://jenkins.example.invalid/jenkins/`, agent phải dùng cả hostname, HTTPS và context path `/jenkins/`; không dùng URL upstream như `http://127.0.0.1:8080/` từ một host khác. Proxy phải giữ prefix và forwarded headers nhất quán. Xem [Jenkins sau Reverse Proxy và TLS](/docs/installation/reverse-proxy-tls) trước khi dùng WebSocket qua proxy.
+
+## Agent secret identity và blast radius
+
+Agent secret là giá trị xác thực của một **inbound node identity**. Nó cho phép process chứng minh với controller rằng nó được phép kết nối như node đó. Secret không phải API token của người dùng, không phải private key SSH và không nên được dùng lại cho một node khác.
+
+Nếu lộ secret, người có nó có thể cố kết nối giả làm node tương ứng. Blast radius tùy policy controller nhưng phải được đánh giá ít nhất theo labels, executor, workspace, account OS, network egress và dữ liệu còn trên node đó. Kẻ tấn công không mặc nhiên thành Jenkins administrator, nhưng một agent được controller tin cậy là một điểm chạy mã mạnh; xử lý sự cố như một compromise của identity và host scope, không chỉ là lỗi login.
+
+### Secret khác credential ID
+
+**Agent secret** và **credentials ID** có mục đích khác nhau:
+
+| Khái niệm | Dùng cho | Có thể xuất hiện ở đâu | Không được suy ra |
+| --- | --- | --- | --- |
+| Agent secret | Xác thực `agent.jar` là một inbound node | Secret delivery, file permission giới hạn hoặc secret manager | Không phải `credentialsId` của Pipeline và không cấp quyền deploy. |
+| Credentials ID | Tham chiếu đến credential Jenkins như `release-api-token` | Jenkinsfile hoặc cấu hình job, ví dụ `credentialsId: 'release-api-token'` | ID không phải giá trị credential; không dùng làm agent secret. |
+
+Pipeline chỉ nên tham chiếu credential ID theo phạm vi folder/job hẹp nhất, rồi nạp secret trong stage tin cậy ngắn nhất. Agent secret không được đặt vào Jenkinsfile, `withCredentials`, build parameter, artifact hay shared library. Xem [Credentials trong Pipeline](/docs/pipelines/credentials) để phân biệt binding Pipeline với identity kết nối agent.
+
+### Lấy lệnh từ controller mà không tạo shell history
+
+Sau khi tạo node, mở trang node và chọn **Launch agent**. Controller hiển thị chính xác URL, tên node, transport và agent secret cho identity đó. Đây là nguồn lệnh đáng tin cậy cho controller hiện tại, nhưng màn hình này không phải lý do để paste secret vào terminal, chat, ticket hoặc repository.
+
+Quy trình an toàn là:
+
+1. Người được phép mở trang node và xác nhận hostname/controller URL trước khi lấy lệnh.
+2. Gửi secret trực tiếp vào kênh provision đã được phê duyệt, như secret manager, automation có audit, hoặc file đã mã hóa do service account đọc được. Không copy qua shell interactive.
+3. Tạo service config chỉ chứa URL, node name, `-webSocket`, work directory và **đường dẫn** secret. Ví dụ bên dưới dùng `-secret @/etc/jenkins-agent/secret`, không chứa giá trị secret.
+4. Đặt quyền file chỉ cho account service; kiểm tra bằng `test -s` hoặc ACL, không bằng `cat`, `echo`, `printenv` hay screenshot.
+
+`-secret @<file>` yêu cầu `agent.jar` của controller hiểu file reference. Xác nhận lệnh controller hiển thị hoặc `java -jar agent.jar -help` trên bản agent đã tải trước khi chuẩn hóa mẫu này. Nếu version chỉ cung cấp secret dạng argument, dùng cơ chế secret injection của service manager theo policy tổ chức; không viết `java ... -secret <giá-trị-thật>` vào shell history. Xóa history sau khi lộ secret không thu hồi được bản sao trong terminal log, audit hay process list.
+
+<Callout type="error" title="Secret không được phép xuất hiện trong log hoặc Git">
+  Không commit secret, private key, `agent.env`, service unit có secret, ảnh chụp Launch agent, Console Output, support bundle hay ticket. Cũng không chạy `set -x`, `printenv` hoặc diagnostic dump trong process có secret. Masking log không thay thế việc không in secret.
+</Callout>
+
+### Rotation và phản ứng khi nghi ngờ lộ lọt
+
+Có owner, mục đích và ngày review cho mỗi node identity. Rotation không chỉ là thay một file: drain node, thay identity/secret theo UI và version controller, cập nhật secret delivery, restart một agent lab/canary, rồi thu hồi giá trị cũ. Một số version/quy trình có thể yêu cầu tạo lại inbound node identity để nhận secret mới; xác nhận hành vi trên Jenkins LTS của bạn, không giả định có nút rotate giống nhau ở mọi version.
+
+Khi nghi ngờ lộ secret hoặc host bị compromise:
+
+1. Đặt node tạm offline để ngăn allocation mới; giữ bằng chứng log theo incident process.
+2. Dừng service agent theo cách có kiểm soát, đánh giá build đang chạy, workspace, process, network egress và credential từng được đưa vào host.
+3. Replace hoặc recreate identity để secret cũ không còn hợp lệ; provision secret mới qua kênh bảo mật.
+4. Rotate credential deploy, token registry hoặc key khác từng có mặt trên host nếu assessment cho thấy có thể bị đọc. Không chỉ đổi agent secret rồi coi incident đã xong.
+5. Rebuild hoặc re-attest host/image nếu trust của OS không còn đáng tin, rồi chạy canary trên pool cô lập trước khi đưa node online.
+
+## Cấu hình WebSocket sau reverse proxy
+
+Một WebSocket agent dùng URL HTTPS của Jenkins và cờ `-webSocket`. Mẫu lệnh **chỉ dùng placeholder**, không phải lệnh để paste secret thật:
+
+```bash
+java -jar /opt/jenkins/agent.jar \
+  -url 'https://jenkins.example.invalid/jenkins/' \
+  -secret '@/etc/jenkins-agent/secret' \
+  -name 'lab-inbound-ws-01' \
+  -webSocket \
+  -workDir '/var/lib/jenkins-agent'
+```
+
+Dấu `@` bảo agent đọc secret từ file thay vì đưa secret vào source code của command. URL có trailing slash và context path giống **Jenkins URL**. Không thay bằng `http://controller:8080` để né certificate hoặc proxy; cách đó thay đổi route, trust boundary và có thể bỏ qua policy edge.
+
+### TLS và certificate trust
+
+Java cần tin certificate chain mà proxy trình bày cho hostname trong URL. Với CA công khai, trust store Java/OS đã cập nhật thường đủ; với CA nội bộ, phân phối CA root/intermediate qua image management hoặc trust store do đội vận hành quản lý. Kiểm tra SAN hostname, chain và expiry; không thay verification bằng `curl -k`, certificate tự ký không tin cậy hoặc một flag bỏ certificate check.
+
+Khi proxy terminate TLS nhưng controller chạy HTTP private ở phía sau, agent chỉ tin certificate của proxy/public hostname. Khi proxy và controller là hai host khác nhau, bảo vệ cả hop nội bộ bằng private network hoặc TLS/mTLS theo threat model. Certificate private key thuộc proxy/secret store, không thuộc agent work directory hoặc repository.
+
+### Kiểm tra proxy trước khi khởi động agent
+
+Từ host agent lab, xác minh DNS và TLS với CA cụ thể. Các biến bên dưới không có secret:
+
+```bash
+CONTROLLER_URL='https://jenkins.example.invalid/jenkins/'
+CONTROLLER_CA='/etc/ssl/certs/organization-ca.pem'
+
+curl --fail --silent --show-error --head \
+  --cacert "$CONTROLLER_CA" \
+  "$CONTROLLER_URL/login"
+```
+
+Kết quả mong đợi là response HTTPS hợp lệ, không redirect tới `http://`, `127.0.0.1:8080` hoặc URL làm mất `/jenkins/`. Sau đó kiểm tra cấu hình proxy tại mọi hop: HTTP/1.1 upstream, `Upgrade`, `Connection`, TLS headers và idle timeout đủ với socket dài. Cấu hình Nginx và cách kiểm tra `101` được mô tả tại [Jenkins sau Reverse Proxy và TLS](/docs/installation/reverse-proxy-tls).
+
+## Cài agent như service trên Linux
+
+Ví dụ này dùng một Linux host lab, user service không đăng nhập interactive và systemd. Cài Java theo baseline tương thích Jenkins, không dùng account `root` để chạy agent. Quy trình cài Jenkins controller trên host Linux nằm ở [Cài Jenkins trên Linux](/docs/installation/linux); nếu controller lab ở container, xem [Chạy Jenkins với Docker](/docs/installation/docker).
+
+### Tạo thư mục và lấy agent.jar
+
+Provision secret qua kênh ngoài shell trước. Các lệnh dưới đây chỉ tạo thư mục và kiểm tra metadata; chúng không tạo hoặc hiển thị secret.
+
+```bash
+sudo install -d -o root -g jenkins-agent -m 0750 /etc/jenkins-agent
+sudo install -d -o jenkins-agent -g jenkins-agent -m 0750 /var/lib/jenkins-agent
+sudo install -d -o root -g root -m 0755 /opt/jenkins
+
+curl --fail --location --proto '=https' --tlsv1.2 \
+  --output /tmp/agent.jar \
+  'https://jenkins.example.invalid/jenkins/jnlpJars/agent.jar'
+sudo install -o root -g root -m 0644 /tmp/agent.jar /opt/jenkins/agent.jar
+rm -f /tmp/agent.jar
+
+sudo test -s /etc/jenkins-agent/secret
+sudo stat -c '%U:%G %a %n' /etc/jenkins-agent/secret
+```
+
+Kết quả mong đợi: `agent.jar` đọc được bởi service, work directory ghi được bởi `jenkins-agent`, và lệnh `stat` chỉ in owner/group/mode/path của secret file. Ví dụ policy có thể dùng `root:jenkins-agent` với mode `0640` và thư mục `0750`, miễn chỉ service identity được đọc. Không dán secret vào `sudo tee`, không tạo file placeholder có vẻ giống secret thật, và không đưa file secret vào `/var/lib/jenkins-agent` hoặc workspace.
+
+### Systemd unit có backoff
+
+Lưu unit sau dưới `/etc/systemd/system/jenkins-agent.service`. Giá trị URL/tên node là placeholder công khai; file secret được provision riêng như phần trước.
+
+```ini
+[Unit]
+Description=Jenkins inbound WebSocket agent (lab)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=jenkins-agent
+Group=jenkins-agent
+WorkingDirectory=/var/lib/jenkins-agent
+ExecStart=/usr/bin/java -jar /opt/jenkins/agent.jar -url https://jenkins.example.invalid/jenkins/ -secret @/etc/jenkins-agent/secret -name lab-inbound-ws-01 -webSocket -workDir /var/lib/jenkins-agent
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/jenkins-agent
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`Restart=on-failure` cùng `RestartSec=15` giúp service hồi phục lỗi tạm thời mà không quay vòng vô hạn. `StartLimitBurst=5` trong 300 giây biến reconnect failure kéo dài thành tín hiệu cần điều tra thay vì tạo log storm. Những hardening directive phải được kiểm thử với Java, work directory và toolchain của bạn; nếu buộc phải nới một directive, ghi rõ lý do và chỉ nới đường dẫn cần thiết.
+
+Sau khi review file, enable/start bằng change procedure của lab:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now jenkins-agent.service
+sudo systemctl status --no-pager jenkins-agent.service
+sudo journalctl -u jenkins-agent.service -n 100 --no-pager
+```
+
+Không dùng `systemctl cat` hoặc `journalctl` làm nơi chứa secret. Log tốt chỉ cần cho biết URL đã kết nối, WebSocket/Remoting được thiết lập, node online hoặc mã lỗi; nếu command/log vô tình lộ secret, xử lý như incident và rotate identity.
+
+## Cài agent như service trên Windows
+
+Trên Windows, dùng service account riêng không có local administrator, remote desktop hay quyền share không cần thiết. Có thể dùng Windows service wrapper được tổ chức phê duyệt, chẳng hạn WinSW, nhưng wrapper là dependency ngoài Jenkins: pin version, kiểm tra checksum/provenance, review XML và cập nhật như phần mềm vận hành. Không dùng Scheduled Task hay `cmd.exe /c` chứa một command có secret chỉ để “chạy nền”.
+
+Tạo `C:\ProgramData\JenkinsAgent\start-agent.ps1` chỉ chứa placeholder công khai và đường dẫn secret, không chứa secret:
+
+```powershell
+$java = 'C:\Program Files\Eclipse Adoptium\jre\bin\java.exe'
+$agentJar = 'C:\ProgramData\JenkinsAgent\agent.jar'
+$controllerUrl = 'https://jenkins.example.invalid/jenkins/'
+$secretFile = '@C:\ProgramData\JenkinsAgent\secret'
+$workDir = 'C:\JenkinsAgent\work'
+
+& $java -jar $agentJar `
+  -url $controllerUrl `
+  -secret $secretFile `
+  -name 'lab-inbound-win-01' `
+  -webSocket `
+  -workDir $workDir
+exit $LASTEXITCODE
+```
+
+Service wrapper gọi `powershell.exe -NoProfile -File C:\ProgramData\JenkinsAgent\start-agent.ps1`; cấu hình wrapper không cần biết giá trị secret. Secret được secret manager hoặc quy trình privileged ghi trực tiếp vào `C:\ProgramData\JenkinsAgent\secret`, sau đó ACL chỉ cấp read cho `<SERVICE_ACCOUNT>` và full control cho Administrators theo policy. Ví dụ kiểm tra ACL không lộ nội dung:
+
+```powershell
+icacls 'C:\ProgramData\JenkinsAgent\secret'
+Test-Path -Path 'C:\ProgramData\JenkinsAgent\secret' -PathType Leaf
+```
+
+Cấu hình service restart on failure với delay/backoff ở wrapper, ghi stdout/stderr vào thư mục log có retention, và chuyển sự kiện quan trọng vào Windows Event Log hoặc hệ thống log tập trung. Trước production, kiểm tra service vẫn khởi động sau reboot, certificate CA nội bộ nằm trong Java trust store phù hợp, và user service chỉ ghi được work/log directory. Hướng dẫn chuẩn bị Jenkins trên Windows có tại [Cài Jenkins trên Windows](/docs/installation/windows).
+
+## Vòng đời reconnect logging và shutdown
+
+### Trạng thái và reconnect
+
+Vòng đời bình thường là provision node → khởi động agent → `Online` → nhận allocation → tạm offline để bảo trì → drain → dừng hoặc thay thế. `Online` chỉ chứng minh channel hiện có; nó không chứng minh toolchain, workspace, disk hay trust tier vẫn đúng. Sau mỗi reconnect, kiểm tra agent log, Java version, labels, work directory, disk và một canary không dùng credential.
+
+Đừng đặt retry vô hạn như biện pháp khắc phục. Reconnect lặp lại là triệu chứng của một trong các lớp: DNS, firewall, proxy idle timeout, TLS/certificate trust, URL/context path, secret/identity, Java process, disk hết hoặc controller quá tải. Backoff hạn chế ảnh hưởng nhưng không thay thế root-cause analysis.
+
+### Giám sát và log không nhạy cảm
+
+Quan sát ở cả ba lớp:
+
+- **Controller:** trạng thái node `Online`/offline, node log, queue reason, số executor bận/rảnh, thời điểm disconnect và thay đổi config/plugin.
+- **Service agent:** `systemctl status`/journald trên Linux; Service Control Manager, Event Log và wrapper log trên Windows. Theo dõi exit code, restart count, Java process, CPU, RAM, disk/inode và work directory.
+- **Network/proxy:** DNS failure, TLS handshake, HTTP `101 Switching Protocols`, 4xx/5xx, idle timeout và reconnect interval. Không log Authorization header, request body hoặc secret query/argument.
+
+Đặt alert cho agent offline kéo dài, restart burst, tỷ lệ reconnect tăng, queue time tăng theo label, disk gần đầy và certificate sắp hết hạn. Một dashboard chỉ có trạng thái xanh không cho thấy agent đang flap hay queue không có executor phù hợp.
+
+### Drain và shutdown an toàn
+
+Để bảo trì hoặc retire node, vào trang node và đánh dấu **temporarily offline** với lý do ticket/change. Việc này ngăn allocation mới; sau đó quan sát build hiện có. Chờ build an toàn kết thúc hoặc xử lý cancel theo quy trình workload, rồi mới dừng service bằng `systemctl stop jenkins-agent.service` hoặc Windows Service Control Manager. Không dùng `kill -9`, tắt máy hay xóa remote root khi agent còn build nếu chưa đánh giá mất artifact, deploy dở dang và Pipeline durability.
+
+Sau khi service dừng, xác nhận node offline trên controller, lưu log cần thiết, dọn workspace theo retention policy và thu hồi secret/identity khi retire. Khởi động lại chỉ sau khi canary chứng minh Java, TLS, Remoting, label và work directory hợp lệ. Với agent production, record owner và thời điểm shutdown để người khác không “bật lại cho hết queue” mà bỏ qua nguyên nhân.
+
+## Lab local WebSocket từng bước
+
+Lab này tạo một agent Linux tạm thời chỉ chạy `printf`, `uname` và `sleep`. Không checkout repository, không dùng credential Pipeline, không mở port `50000`, không yêu cầu Docker socket và không tác động controller production.
+
+### Điều kiện lab
+
+- Một Jenkins lab đã cài theo [Docker](/docs/installation/docker) hoặc [Linux](/docs/installation/linux), với Jenkins URL HTTPS canonical. Nếu có reverse proxy/context path, nó đã qua kiểm tra của [Reverse Proxy và TLS](/docs/installation/reverse-proxy-tls).
+- Một Linux VM/host disposable có Java tương thích, account `jenkins-agent`, disk trống và outbound HTTPS tới controller. Host không có access production, credential deploy hay label `trusted-release`.
+- Một CA file lab được tin cậy bởi Java/curl nếu controller dùng CA nội bộ. Không dùng `-k`.
+- Quyền tạo node trên **Jenkins lab** và một kênh provision secret được phê duyệt. Nếu không có kênh này, dừng lab thay vì dán secret vào terminal.
+
+### Các bước thực hiện
+
+1. Trong **Manage Jenkins → Nodes**, tạo permanent node `lab-inbound-ws-01`. Đặt remote root `/var/lib/jenkins-agent`, labels `linux lab-inbound`, một executor và launch method **WebSocket** hoặc inbound có WebSocket theo UI của Jenkins LTS. Không đặt label release và không dùng built-in node.
+2. Mở **Launch agent**, kiểm tra URL có HTTPS và context path chính xác. Chuyển secret trực tiếp tới file `/etc/jenkins-agent/secret` bằng secret delivery của lab. Chỉ chạy `sudo test -s /etc/jenkins-agent/secret`; không dùng `cat` hoặc dán secret trong shell.
+3. Tải `agent.jar` qua HTTPS từ `$CONTROLLER_URL/jnlpJars/agent.jar`, dùng CA lab để kiểm tra TLS như [Kiểm tra proxy trước khi khởi động agent](#kiểm-tra-proxy-trước-khi-khởi-động-agent). Tạo systemd unit theo [Systemd unit có backoff](#systemd-unit-có-backoff), thay URL/node name bằng giá trị lab nhưng giữ `-webSocket`.
+4. Start service và mở node log. Chờ `lab-inbound-ws-01` thành `Online`. Nếu không online, dừng ở đây để kiểm tra URL, certificate, proxy Upgrade, secret và service log; không mở `50000` như một thử nghiệm.
+5. Tạo Pipeline job lab không liên kết SCM, sau đó chạy Jenkinsfile vô hại sau:
+
+   ```groovy
+   pipeline {
+     agent none
+
+     stages {
+       stage('Xác nhận inbound WebSocket') {
+         agent { label 'linux && lab-inbound' }
+         steps {
+           sh '''
+             printf 'node=%s\\n' "$NODE_NAME"
+             printf 'workspace=%s\\n' "$WORKSPACE"
+             uname -s
+             sleep 45
+           '''
+         }
+       }
+     }
+   }
+   ```
+
+6. Khi build đầu đang `sleep 45`, trigger build thứ hai. Mở **Build Queue**, node page và Console Output. Agent lab chỉ có một executor nên build thứ hai phải chờ; nó không được chạy trên controller.
+7. Kết thúc: đánh dấu node temporarily offline, chờ hai build xong, `sudo systemctl stop jenkins-agent.service`, xác nhận node offline, xóa node lab và hủy host/secret lab theo quy trình. Không tái sử dụng work directory hoặc identity lab cho release.
+
+### Kết quả mong đợi
+
+| Quan sát | Kết quả đúng | Nếu không đúng |
+| --- | --- | --- |
+| TLS tới controller | `curl --cacert` thành công; URL giữ HTTPS và `/jenkins/` | Kiểm tra DNS, CA chain/SAN, Jenkins URL và proxy context path. |
+| Node | `lab-inbound-ws-01` là `Online`, labels `linux lab-inbound`, 1 executor | Đọc node/service/proxy log; kiểm tra secret file permission và Java. |
+| Build đầu | Log in node, workspace và `Linux`; không có secret | Kiểm tra label, agent account và Jenkinsfile lab. |
+| Build thứ hai | Chờ trong queue tới khi build đầu trả executor | Xác nhận chỉ có một executor và không có node khác cùng labels. |
+| Network | Không cần TCP `50000`; agent giữ online qua khoảng idle đã chọn | Kiểm tra proxy HTTP/1.1 Upgrade và timeout ở mọi hop. |
+
+## Troubleshooting
+
+| Dấu hiệu | Nguyên nhân thường gặp | Kiểm tra và xử lý an toàn |
+| --- | --- | --- |
+| Node không online, log nói secret/identity bị từ chối | Secret sai, node name sai, identity đã thay hoặc secret file không đọc được | Đối chiếu lệnh **Launch agent** với node hiện tại, kiểm tra owner/mode/ACL không in nội dung; replace identity nếu nghi ngờ lộ. |
+| `PKIX path building failed` hoặc hostname mismatch | Java không tin CA, chain thiếu, SAN không khớp URL hoặc certificate hết hạn | Cài CA qua trust-store management, kiểm tra SAN/chain/expiry; không dùng `-k` hay bỏ verification. |
+| `404`, redirect lặp hoặc URL mất `/jenkins/` | Sai controller URL, context path hoặc Jenkins URL/proxy rewrite không nhất quán | Dùng URL canonical có trailing slash; so khớp `--prefix`, proxy location và Jenkins URL. |
+| Online rồi offline theo chu kỳ | Proxy/WAF/LB thiếu Upgrade hoặc idle timeout thấp; network flap | So log agent với proxy `101`/timeout, kiểm tra HTTP/1.1 `Upgrade` và timeout mọi hop; giữ backoff trong khi sửa nguyên nhân. |
+| WebSocket lỗi nhưng `50000` đóng | Nhầm WebSocket với TCP listener | Với WebSocket, kiểm tra HTTPS/proxy; chỉ cấu hình fixed TCP listener và firewall nếu chủ đích chuyển sang inbound TCP. |
+| Service restart storm | Java path/permission sai, disk đầy, secret file/URL lỗi hoặc controller không reachable | Đọc `systemctl status`/journald hoặc Windows service log, kiểm tra restart count, disk và DNS; không tăng retry vô hạn. |
+| Node online nhưng job vẫn queue | Label expression không khớp, executor bận, node tạm offline hoặc policy concurrency chặn | Đọc lý do Build Queue, xác nhận labels/executor; không đổi sang `agent any` hoặc bật controller executor. |
+| Có dấu hiệu secret đã lộ | Console, artifact, shell history, ticket, process list hoặc host compromise | Tạm offline node, dừng/đánh giá host, rotate/replace identity và các credential từng có trên host theo incident process. |
+
+## Checklist trước khi vận hành
+
+- [ ] Jenkins LTS, Java, Remoting `agent.jar`, launch method và plugin dependency đã được đối chiếu version/policy; agent.jar lấy từ controller của môi trường.
+- [ ] Node có remote root, labels, executor, owner và trust tier rõ ràng; built-in node production có `0` executor.
+- [ ] Đã chọn chủ đích WebSocket hoặc inbound TCP. `50000` chỉ được dùng và allowlist khi controller cấu hình TCP listener; WebSocket chỉ cần HTTPS route đã kiểm thử.
+- [ ] Firewall direction được review: inbound agent tự mở agent → controller; SSH-launched agent có chiều ngược lại.
+- [ ] DNS, Jenkins URL, context path, proxy headers và TLS certificate chain thống nhất; agent Java tin CA thay vì bỏ verification.
+- [ ] Mọi proxy/LB/WAF/ingress hỗ trợ WebSocket HTTP/1.1 Upgrade và idle timeout đã được kiểm thử nếu dùng `-webSocket`.
+- [ ] Agent secret được delivery ngoài shell history/Git/log, nằm trong secret manager hoặc file có ACL tối thiểu; secret không bị nhầm với credentials ID.
+- [ ] Có owner, review, rotation/replacement và incident playbook cho agent identity; blast radius của host, labels, egress, workspace và credential đã được đánh giá.
+- [ ] PR/fork hoặc mã không tin cậy không chạy trên agent tin cậy, không dùng chung workspace/cache/account OS, và không nhận credential release.
+- [ ] Linux/Windows service chạy account tối thiểu, có restart backoff, log retention, alert offline/reconnect/disk và smoke test sau reboot/reconnect.
+- [ ] Quy trình drain, shutdown, cleanup và retire ngăn allocation mới trước khi dừng service; canary không có credential được chạy trước khi đưa agent trở lại.
+
+## Nguồn Jenkins chính thức
+
+- [Using Jenkins agents](https://www.jenkins.io/doc/book/using/using-agents/) — khái niệm agent, Remoting, launch methods và lựa chọn transport.
+- [Managing Nodes](https://www.jenkins.io/doc/book/managing/nodes/) — tạo, cấu hình và vận hành node/agent.
+- [Configure Global Security: Agents](https://www.jenkins.io/doc/book/system-administration/security-configure-global-security/#agents) — agent protocols, TCP listener và WebSocket theo controller hiện hành.
+- [Reverse proxy configuration](https://www.jenkins.io/doc/book/system-administration/reverse-proxy-configuration-with-jenkins/) — URL public, headers và kiểm tra proxy.
+- [Agent Remoting](https://www.jenkins.io/doc/book/managing/remoting/) — Remoting, `agent.jar` và kết nối controller–agent.
+- [Java Support Policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/) — ma trận Java cho Jenkins LTS.
+- [Controller isolation](https://www.jenkins.io/doc/book/security/controller-isolation/) — tách controller khỏi workload build không tin cậy.
+- [Using credentials](https://www.jenkins.io/doc/book/using/using-credentials/) — scope, permission và quản trị credential Jenkins.
+
+## Đọc tiếp
+
+<Cards>
+  <Card title="Tổng quan Jenkins" href="/docs/getting-started/overview" description="Ôn controller, agent, job và queue trước khi chọn transport." />
+  <Card title="Kiến trúc Jenkins" href="/docs/getting-started/architecture" description="Hiểu luồng controller–agent, executor và workspace." />
+  <Card title="Yêu cầu hệ thống" href="/docs/getting-started/requirements" description="Chuẩn bị Java, storage, DNS và network cho agent." />
+  <Card title="Chạy Jenkins với Docker" href="/docs/installation/docker" description="Dựng controller lab trước khi thử inbound agent." />
+  <Card title="Cài Jenkins trên Linux" href="/docs/installation/linux" description="Chuẩn bị controller hoặc host Linux theo hướng dẫn cài đặt." />
+  <Card title="Cài Jenkins trên Kubernetes" href="/docs/installation/kubernetes" description="Đặt controller trong cluster khi hạ tầng đã được quản trị." />
+  <Card title="Cài Jenkins trên Windows" href="/docs/installation/windows" description="Chuẩn bị môi trường Windows và service account phù hợp." />
+  <Card title="Reverse Proxy và TLS" href="/docs/installation/reverse-proxy-tls" description="Cấu hình HTTPS, context path và WebSocket tại edge." />
+  <Card title="Tổng quan Pipeline" href="/docs/pipelines/overview" description="Quay lại cấu trúc Pipeline và lifecycle build." />
+  <Card title="Chọn agent cho Pipeline" href="/docs/pipelines/agents" description="Route workload bằng agent và label trong Jenkinsfile." />
+  <Card title="Credentials trong Pipeline" href="/docs/pipelines/credentials" description="Giữ secret deploy ngoài code, log và agent không tin cậy." />
+  <Card title="Tổng quan agents" href="/docs/agents/overview" description="So sánh lifecycle, capacity và trust boundary của pool agent." />
+  <Card title="Labels và executors" href="/docs/agents/labels-executors" description="Định tuyến job đúng capability và theo dõi queue." />
+</Cards>
