@@ -227,7 +227,10 @@ pipeline {
               consoleLogResponseBody: false, contentType: 'APPLICATION_JSON',
               httpMode: 'POST', quiet: true, requestBody: payload, timeout: 5,
               url: env.NOTIFICATION_ENDPOINT, validResponseCodes: '200:299'
-          } catch (Exception ignored) {
+          } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException interruption) {
+            // Abort/timeout là tín hiệu điều khiển Pipeline, không phải lỗi delivery để nuốt.
+            throw interruption
+          } catch (Exception notificationError) {
             echo 'External notification failed; evidence and original build result are retained.'
           }
         } else {
@@ -273,7 +276,7 @@ pipeline {
 | --- | --- | --- |
 | `sh`, `timeout`, `input`, `archiveArtifacts`, `unstable` | Pipeline step plugins và Unix shell trên agent | `sh` không chạy trên Windows agent; `timeout` bao quanh `input` để build không chờ vô hạn. |
 | `junit` | **JUnit Plugin** | Report được publish ở stage-level `always`, kể cả khi stage tạo failure. |
-| `httpRequest` | **HTTP Request Plugin**, endpoint cố định không chứa token, và credential ID `ci-status-notification-auth` được plugin hỗ trợ | Plugin tra credential theo ID; Jenkinsfile không bind secret vào biến hay chuyển nó qua shell/process argv. `try/catch` giữ lỗi notification không thay đổi kết quả test ban đầu. |
+| `httpRequest` | **HTTP Request Plugin**, endpoint cố định không chứa token, credential ID `ci-status-notification-auth`, và Pipeline Step API có `FlowInterruptedException` | Plugin tra credential theo ID; Jenkinsfile không bind secret vào biến hay chuyển nó qua shell/process argv. Chỉ exception delivery thường là non-blocking; `FlowInterruptedException` được rethrow để giữ Abort/timeout. |
 | `buildDiscarder(logRotator(...))` | Pipeline/jenkins configuration hỗ trợ directive | Đây là retention build/artifact trên controller, không phải xóa file workspace ngay lập tức. |
 
 `archiveArtifacts` nằm trước `cleanup`, nên report, log và artifact đã được lưu vào build record trước khi thư mục tạm bị xóa. Cleanup chỉ xóa marker `.ci-tmp/owned-resource.id` do chính mẫu tạo. Nó cố ý không gọi `deleteDir()`, không dùng wildcard ở ngoài `.ci-tmp/`, và không xóa `reports/`, `artifacts/` hay `logs/` cần điều tra.
@@ -292,6 +295,8 @@ Với workspace, phân biệt file checkout/cache do Jenkins hoặc agent quản
 
 Đặt `timeout` ở Pipeline hoặc stage để một command treo, input bị quên, hay external call chậm không giữ executor vô hạn. Timeout có thể làm flow kết thúc `ABORTED`, vì vậy `aborted`, `always` và `cleanup` vẫn phải thực hiện phần an toàn. Cleanup cũng cần timeout ngắn nếu nó gọi hệ thống ngoài; một request release treo không được biến post action thành điểm nghẽn mới.
 
+Khi cô lập lỗi notification bằng `try/catch`, bắt riêng `org.jenkinsci.plugins.workflow.steps.FlowInterruptedException` trước và `throw` lại như mẫu. Đây là tín hiệu Pipeline dùng cho Abort/timeout, không phải delivery failure. Chỉ catch exception còn lại khi policy thật sự cho phép notification non-blocking. Class này cần Pipeline Step API tương thích với controller; nếu instance không hỗ trợ cú pháp/class đó, xác minh `catchError(catchInterruptions: false)` trong **Pipeline Syntax** của chính controller thay vì dùng generic catch nuốt interruption.
+
 Khi cleanup external thất bại, không retry vô hạn trong post. Ghi resource ID không nhạy cảm, build URL, thời điểm và owner vào log/ticket của hệ thống vận hành; sau đó để một reconciler có quyền hẹp xử lý lại. Reconciler phải kiểm tra owner và TTL trước khi release. Cách này tốt hơn việc một lần chạy lại Pipeline xóa tài nguyên của build khác.
 
 ### Retention không phải cleanup
@@ -306,7 +311,7 @@ Một notification có ích trả lời: build nào, kết quả nào, xem evide
 
 Mẫu chỉ gửi HTTP khi đồng thời thỏa ba điều kiện: người chạy bật `NOTIFY_EXTERNAL`, build không có `CHANGE_ID`, và `BRANCH_NAME == 'main'`. `BRANCH_NAME` và `CHANGE_ID` là metadata của **Multibranch Pipeline**; mẫu/lab vì vậy không hỗ trợ Pipeline job thường như một nguồn notification đáng tin cậy. Job thường thiếu `BRANCH_NAME` sẽ không gửi. Không tự đặt biến này bằng parameter hoặc `environment` để vượt điều kiện; nếu cần notification cho job thường, dùng một job trusted riêng có SCM/branch được quản trị cấu hình và credential scope tương ứng.
 
-Notification dùng **HTTP Request Plugin** với `authentication: 'ci-status-notification-auth'`, là credential ID chứ không phải giá trị secret. Endpoint là cấu hình cố định, không chứa token. Jenkinsfile không gọi `sh`, không bind token vào biến môi trường và không truyền URL/secret nhạy cảm qua process argv trên agent. `try/catch` chỉ cô lập lỗi delivery; nó không thay kết quả build ban đầu. Đây là defense in depth, không thay thế branch protection, quyền build, credential scope và review endpoint.
+Notification dùng **HTTP Request Plugin** với `authentication: 'ci-status-notification-auth'`, là credential ID chứ không phải giá trị secret. Endpoint là cấu hình cố định, không chứa token. Jenkinsfile không gọi `sh`, không bind token vào biến môi trường và không truyền URL/secret nhạy cảm qua process argv trên agent. `try/catch` chỉ coi lỗi HTTP thông thường là non-blocking: nó rethrow `FlowInterruptedException` trước khi catch `Exception`, nên Abort/timeout vẫn lan truyền đúng kết quả build. Đây là defense in depth, không thay thế branch protection, quyền build, credential scope và review endpoint.
 
 ### Masking và secret
 
@@ -363,7 +368,7 @@ Không dùng abort lab để kiểm tra lệnh release bên ngoài. Đây chỉ 
 - [ ] Có phân biệt `SUCCESS`, `FAILURE`, `UNSTABLE`, `ABORTED` và không dùng `changed` cho hành động bắt buộc.
 - [ ] Thứ tự condition cố định, đặc biệt `cleanup` là condition cuối, đã được tính vào thiết kế.
 - [ ] Mỗi resource external có ID, tag owner, TTL và cleanup idempotent; không có wildcard hay tên chung để xóa rộng.
-- [ ] Timeout bao quanh thao tác có thể treo; abort và lỗi cleanup có đường quan sát/escalation rõ.
+- [ ] Timeout bao quanh thao tác có thể treo; `FlowInterruptedException` được rethrow, còn lỗi notification thường chỉ non-blocking khi policy cho phép.
 - [ ] Artifact phục vụ điều tra được publish trước; retention có policy riêng, không bị xóa ngay trong post.
 - [ ] Payload notification chỉ chứa metadata đã review; không chứa secret, full log hay environment dump.
 - [ ] Notification dùng plugin tra credential bằng ID; Jenkinsfile không chuyển URL/token nhạy cảm vào shell/process argv hoặc payload.
