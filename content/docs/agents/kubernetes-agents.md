@@ -293,14 +293,9 @@ Mục tiêu lab là xác nhận **schema và quyền** trước, sau đó mới 
 
 ### Manifest policy tối thiểu
 
-Lưu manifest sau thành `agent-lab-policy.yaml` trên máy lab. Nó minh họa pod identity không có quyền Kubernetes mặc định, quota nhỏ và LimitRange bắt buộc khai báo resource. `Role` cho controller không nằm ở đây vì đó là quyền cloud cấp riêng, phải được platform review theo namespace.
+Trước lab, platform owner phải tạo sẵn namespace sandbox `jenkins-agent-lab` qua quy trình được phê duyệt. Namespace không nằm trong manifest này: `kubectl apply --dry-run=server` không persist Namespace, nên không thể làm namespace tồn tại cho các object namespaced theo sau. Lưu manifest **chỉ gồm object namespaced** sau thành `agent-lab-policy.yaml` trên máy lab. Nó minh họa pod identity không có quyền Kubernetes mặc định, quota nhỏ và LimitRange bắt buộc khai báo resource. `Role` cho controller không nằm ở đây vì đó là quyền cloud cấp riêng, phải được platform review theo namespace.
 
 ```yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: jenkins-agent-lab
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -348,23 +343,31 @@ spec:
 
    **Kết quả mong đợi:** context và endpoint được đội lab xác nhận, không phải production.
 
-2. Kiểm tra cấu trúc manifest hoàn toàn ở client; lệnh này không tạo namespace hay ServiceAccount.
+2. Xác minh platform đã tạo sẵn **đúng namespace sandbox** và namespace ở trạng thái `Active`. Đây là điều kiện bắt buộc trước server dry-run; không dùng dry-run để tạo namespace.
+
+   ```bash
+   kubectl get namespace jenkins-agent-lab
+   ```
+
+   **Kết quả mong đợi:** namespace `jenkins-agent-lab` tồn tại và có `STATUS` là `Active`. Nếu không tồn tại, dừng lab và yêu cầu platform owner tạo nó theo quy trình sandbox; không chạy server dry-run file namespaced trên namespace mới.
+
+3. Kiểm tra cấu trúc chỉ của ServiceAccount, ResourceQuota và LimitRange hoàn toàn ở client; lệnh này không tạo object nào.
 
    ```bash
    kubectl apply --dry-run=client -f agent-lab-policy.yaml
    ```
 
-   **Kết quả mong đợi:** mỗi object báo `configured (dry run)` hoặc `created (dry run)`; lỗi YAML/schema phải được sửa trước.
+   **Kết quả mong đợi:** ba object namespaced báo `configured (dry run)` hoặc `created (dry run)`; lỗi YAML/schema phải được sửa trước.
 
-3. Chỉ trong sandbox được phê duyệt, dùng API server để kiểm tra admission, quota và policy mà không persist object.
+4. Chỉ trong sandbox được phê duyệt, dùng API server để kiểm tra admission, quota và policy của **các object namespaced trong namespace đã tồn tại**, mà không persist object.
 
    ```bash
    kubectl apply --dry-run=server -f agent-lab-policy.yaml
    ```
 
-   **Kết quả mong đợi:** server chấp nhận manifest hoặc trả lỗi cụ thể về policy/quota. Không thay policy để ép qua lỗi; đưa lỗi cho platform owner.
+   **Kết quả mong đợi:** server chấp nhận ba object hoặc trả lỗi cụ thể về admission/quota/policy. Không có ServiceAccount, ResourceQuota hay LimitRange nào được tạo sau lệnh. Nếu báo `namespaces "jenkins-agent-lab" not found`, quay lại bước 2; không thay dry-run bằng apply.
 
-4. Sau khi platform đã apply manifest trong sandbox theo quy trình riêng, kiểm tra pod identity không có quyền đọc Secret hoặc tạo Pod. Tên ServiceAccount được dùng qua impersonation, không in token.
+5. Sau khi platform đã apply manifest trong sandbox theo quy trình riêng, kiểm tra pod identity không có quyền đọc Secret hoặc tạo Pod. Tên ServiceAccount được dùng qua impersonation, không in token.
 
    ```bash
    kubectl auth can-i get secrets \
@@ -377,7 +380,7 @@ spec:
 
    **Kết quả mong đợi:** cả hai lệnh trả `no` cho template test không cần Kubernetes API. Nếu deploy workflow cần một quyền, tạo Role/RoleBinding riêng, namespaced và review được thay vì mở quyền này cho template test.
 
-5. Cập nhật cloud Jenkins lab để dùng namespace và ServiceAccount này, thay image minh họa bằng digest đã được allowlist, rồi chạy Jenkinsfile mẫu một lần. Console chỉ nên in `NODE_NAME`, `WORKSPACE` và Maven version; không checkout, không credential, không deploy. Xem pod/event trong namespace sandbox để xác nhận request/limit, image digest, `runAsNonRoot` và cleanup sau build.
+6. Cập nhật cloud Jenkins lab để dùng namespace và ServiceAccount này, thay image minh họa bằng digest đã được allowlist, rồi chạy Jenkinsfile mẫu một lần. Console chỉ nên in `NODE_NAME`, `WORKSPACE` và Maven version; không checkout, không credential, không deploy. Xem pod/event trong namespace sandbox để xác nhận request/limit, image digest, `runAsNonRoot` và cleanup sau build.
 
 ## Chẩn đoán failure
 
