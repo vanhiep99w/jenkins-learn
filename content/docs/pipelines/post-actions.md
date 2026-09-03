@@ -140,11 +140,16 @@ Cleanup idempotent nghĩa là gọi lại một hay nhiều lần vẫn đưa h�
 
 ## Jenkinsfile mẫu: lưu bằng chứng, dọn đúng phạm vi
 
-Mẫu này là một lab an toàn cho agent Unix mang label `linux`. Nó tạo report, artifact và log giả lập; không checkout source, không triển khai, không gọi cloud API. `SCENARIO` giúp quan sát kết quả `SUCCESS`, `FAILURE`, `UNSTABLE` và luồng chờ để abort. `.ci-tmp/` là thư mục duy nhất được xem là do build sở hữu và được cleanup sau khi evidence đã publish.
+Mẫu này là một lab an toàn cho agent Unix mang label `linux`, được chạy bằng **Multibranch Pipeline**. Nó tạo report, artifact và log giả lập; không checkout source, không triển khai, không gọi cloud API. `SCENARIO` giúp quan sát kết quả `SUCCESS`, `FAILURE`, `UNSTABLE` và luồng chờ để abort. `.ci-tmp/` là thư mục duy nhất được xem là do build sở hữu và được cleanup sau khi evidence đã publish. Notification bên ngoài chỉ xét `BRANCH_NAME` và `CHANGE_ID` do Multibranch cung cấp; một Pipeline job thông thường không thỏa điều kiện này và cố ý không gửi.
 
 ```groovy
 pipeline {
   agent { label 'linux' }
+
+  environment {
+    // Endpoint cố định, không chứa token; auth chỉ được tham chiếu bằng credential ID.
+    NOTIFICATION_ENDPOINT = 'https://notifications.example.invalid/jenkins/build-status'
+  }
 
   parameters {
     choice(name: 'SCENARIO', choices: ['success', 'failure', 'unstable', 'abort'],
@@ -214,21 +219,19 @@ pipeline {
       archiveArtifacts allowEmptyArchive: true,
         artifacts: 'artifacts/**,logs/**,reports/**', fingerprint: true
       script {
-        boolean trustedMain = !env.CHANGE_ID && env.BRANCH_NAME == 'main'
-        if (params.NOTIFY_EXTERNAL && trustedMain) {
-          withCredentials([string(credentialsId: 'ci-status-webhook', variable: 'WEBHOOK_URL')]) {
-            int exitCode = sh(returnStatus: true, script: '''
-              set +x
-              payload=$(printf '{"result":"%s","build_number":"%s"}' "$FINAL_RESULT" "$BUILD_NUMBER")
-              curl --fail --silent --show-error --max-time 5 \\
-                -H 'Content-Type: application/json' --data "$payload" "$WEBHOOK_URL"
-            ''')
-            if (exitCode != 0) {
-              echo 'External notification failed; evidence and original build result are retained.'
-            }
+        boolean trustedMultibranchMain = !env.CHANGE_ID && env.BRANCH_NAME == 'main'
+        if (params.NOTIFY_EXTERNAL && trustedMultibranchMain) {
+          String payload = "{\"result\":\"${env.FINAL_RESULT}\",\"build_number\":\"${env.BUILD_NUMBER}\"}"
+          try {
+            httpRequest authentication: 'ci-status-notification-auth',
+              consoleLogResponseBody: false, contentType: 'APPLICATION_JSON',
+              httpMode: 'POST', quiet: true, requestBody: payload, timeout: 5,
+              url: env.NOTIFICATION_ENDPOINT, validResponseCodes: '200:299'
+          } catch (Exception ignored) {
+            echo 'External notification failed; evidence and original build result are retained.'
           }
         } else {
-          echo 'External notification is disabled or this is not a trusted main-branch build.'
+          echo 'External notification is disabled or this is not a trusted Multibranch main build.'
         }
       }
     }
@@ -270,8 +273,7 @@ pipeline {
 | --- | --- | --- |
 | `sh`, `timeout`, `input`, `archiveArtifacts`, `unstable` | Pipeline step plugins và Unix shell trên agent | `sh` không chạy trên Windows agent; `timeout` bao quanh `input` để build không chờ vô hạn. |
 | `junit` | **JUnit Plugin** | Report được publish ở stage-level `always`, kể cả khi stage tạo failure. |
-| `withCredentials` | **Credentials Binding Plugin** và credential `ci-status-webhook` | Chỉ bind trong scope ngắn nhất; credential này không tự xuất hiện trên mọi job. |
-| `curl` | Binary trên agent và endpoint đã được đội review | `returnStatus: true` giữ lỗi notification không thay đổi kết quả test ban đầu. |
+| `httpRequest` | **HTTP Request Plugin**, endpoint cố định không chứa token, và credential ID `ci-status-notification-auth` được plugin hỗ trợ | Plugin tra credential theo ID; Jenkinsfile không bind secret vào biến hay chuyển nó qua shell/process argv. `try/catch` giữ lỗi notification không thay đổi kết quả test ban đầu. |
 | `buildDiscarder(logRotator(...))` | Pipeline/jenkins configuration hỗ trợ directive | Đây là retention build/artifact trên controller, không phải xóa file workspace ngay lập tức. |
 
 `archiveArtifacts` nằm trước `cleanup`, nên report, log và artifact đã được lưu vào build record trước khi thư mục tạm bị xóa. Cleanup chỉ xóa marker `.ci-tmp/owned-resource.id` do chính mẫu tạo. Nó cố ý không gọi `deleteDir()`, không dùng wildcard ở ngoài `.ci-tmp/`, và không xóa `reports/`, `artifacts/` hay `logs/` cần điều tra.
@@ -302,19 +304,21 @@ Khi cleanup external thất bại, không retry vô hạn trong post. Ghi resour
 
 Một notification có ích trả lời: build nào, kết quả nào, xem evidence ở đâu và ai sở hữu hành động tiếp theo. Payload nên tối thiểu, ví dụ `result`, `build_number`, URL build nếu endpoint được phép nhận URL đó, và một nhãn policy. Không gửi console log đầy đủ, command line, environment dump, commit message chưa kiểm soát, report có dữ liệu người dùng, token hoặc password.
 
-Mẫu chỉ gửi HTTP khi đồng thời thỏa ba điều kiện: người chạy bật `NOTIFY_EXTERNAL`, build không có `CHANGE_ID`, và `BRANCH_NAME == 'main'`. Đây là defense in depth, không thay thế protection của branch, quyền build, credential scope và review endpoint. Lỗi gọi endpoint được ghi thông báo tổng quát, không thay kết quả test ban đầu.
+Mẫu chỉ gửi HTTP khi đồng thời thỏa ba điều kiện: người chạy bật `NOTIFY_EXTERNAL`, build không có `CHANGE_ID`, và `BRANCH_NAME == 'main'`. `BRANCH_NAME` và `CHANGE_ID` là metadata của **Multibranch Pipeline**; mẫu/lab vì vậy không hỗ trợ Pipeline job thường như một nguồn notification đáng tin cậy. Job thường thiếu `BRANCH_NAME` sẽ không gửi. Không tự đặt biến này bằng parameter hoặc `environment` để vượt điều kiện; nếu cần notification cho job thường, dùng một job trusted riêng có SCM/branch được quản trị cấu hình và credential scope tương ứng.
+
+Notification dùng **HTTP Request Plugin** với `authentication: 'ci-status-notification-auth'`, là credential ID chứ không phải giá trị secret. Endpoint là cấu hình cố định, không chứa token. Jenkinsfile không gọi `sh`, không bind token vào biến môi trường và không truyền URL/secret nhạy cảm qua process argv trên agent. `try/catch` chỉ cô lập lỗi delivery; nó không thay kết quả build ban đầu. Đây là defense in depth, không thay thế branch protection, quyền build, credential scope và review endpoint.
 
 ### Masking và secret
 
-Credentials Binding có thể masking một số giá trị secret trong console, nhưng masking không phải biên giới bảo mật tuyệt đối. Secret vẫn có thể lộ nếu script in biến, tạo payload/log chứa nó, truyền qua argument có thể quan sát bởi process khác, hoặc một công cụ biến đổi giá trị trước khi Jenkins nhận diện.
+Masking Console Output không phải biên giới bảo mật: secret vẫn có thể lộ nếu script in biến, tạo payload/log chứa nó, truyền qua argument có thể quan sát bởi process khác, hoặc một công cụ biến đổi giá trị trước khi Jenkins nhận diện. Vì vậy mẫu không dựa vào masking để bảo vệ notification credential.
 
-Giữ credential trong Jenkins Credentials với scope hẹp. Bind ngay trong block cần dùng và dùng `set +x` trước command HTTP. Không nội suy secret vào Groovy string, không `echo "$WEBHOOK_URL"`, không in environment, và không gửi secret trong body/header ra notification service. Credential để gọi webhook chỉ là thông tin xác thực transport; nó tuyệt đối không thuộc payload notification.
+Giữ credential trong Jenkins Credentials với scope hẹp và để HTTP Request Plugin tra nó bằng credential ID tại thời điểm gọi. Không nội suy secret vào Groovy string, không in environment, và không gửi secret trong body/header ra notification service. Payload của mẫu chỉ có `result` và `build_number`; credential xác thực transport tuyệt đối không thuộc payload. Endpoint cũng không được mã hóa token hay thông tin nhạy cảm trong URL.
 
 ### Pull request, fork và ranh giới tin cậy
 
 Jenkinsfile là code có thể chạy lệnh. Pull request, đặc biệt từ fork, có thể sửa Jenkinsfile để đọc workspace hoặc cố gắng exfiltrate credential. Do đó build không tin cậy không được nhận credential deploy, webhook đặc quyền, agent dùng chung với production hoặc quyền gọi mạng nhạy cảm.
 
-Dùng cấu hình branch source của plugin SCM để tách trusted branch khỏi PR/fork theo policy của tổ chức. Chỉ gửi notification bên ngoài từ job/revision đã được tin cậy và có credential scope đúng; với PR, hãy để Jenkins/SCM publish status qua integration đã quản lý hoặc chỉ ghi Console Output. Nền tảng bảo vệ Jenkinsfile và credential được đặt trong [Declarative Pipeline](/docs/pipelines/declarative).
+Dùng cấu hình branch source của plugin SCM để tách trusted branch khỏi PR/fork theo policy của tổ chức. Mẫu chỉ gửi từ revision `main` do Multibranch nhận diện và không có `CHANGE_ID`; đừng coi một tên branch do người dùng truyền vào là trust boundary. Với PR, hãy để Jenkins/SCM publish status qua integration đã quản lý hoặc chỉ ghi Console Output. Nền tảng bảo vệ Jenkinsfile và credential được đặt trong [Declarative Pipeline](/docs/pipelines/declarative).
 
 ## Lab sandbox: quan sát bốn kết quả
 
@@ -322,8 +326,8 @@ Lab này dùng đúng Jenkinsfile mẫu, không cần repository ứng dụng. M
 
 ### Chuẩn bị
 
-1. Tạo một Pipeline job dùng script ở trên hoặc commit nó vào `Jenkinsfile` của repository sandbox.
-2. Đảm bảo agent có label `linux`, shell POSIX và các plugin/dependency ở bảng trên. Nếu thiếu `curl` hoặc credential webhook, giữ `NOTIFY_EXTERNAL=false`; các scenario vẫn chạy và chỉ in notification nội bộ.
+1. Commit mẫu vào `Jenkinsfile` của repository sandbox, rồi tạo một **Multibranch Pipeline** job để branch source phát hiện branch `main`. Không chạy lab bằng Pipeline job script thông thường nếu muốn kiểm tra trust condition của notification.
+2. Đảm bảo agent có label `linux`, shell POSIX và các plugin/dependency ở bảng trên. Nếu thiếu HTTP Request Plugin hoặc credential ID `ci-status-notification-auth`, giữ `NOTIFY_EXTERNAL=false`; các scenario vẫn chạy và chỉ in notification nội bộ.
 3. Trong trang build, giữ mở **Console Output**, trang **Test Result** (nếu JUnit Plugin có UI) và mục **Archived Artifacts**. Chọn `SCENARIO` trước mỗi lần Build with Parameters.
 4. Không thay đường dẫn archive bằng `**/*` trong lab. Mục tiêu là xác nhận allowlist `artifacts/**,logs/**,reports/**` trước, rồi mới điều chỉnh cho repository thật.
 
@@ -362,7 +366,8 @@ Không dùng abort lab để kiểm tra lệnh release bên ngoài. Đây chỉ 
 - [ ] Timeout bao quanh thao tác có thể treo; abort và lỗi cleanup có đường quan sát/escalation rõ.
 - [ ] Artifact phục vụ điều tra được publish trước; retention có policy riêng, không bị xóa ngay trong post.
 - [ ] Payload notification chỉ chứa metadata đã review; không chứa secret, full log hay environment dump.
-- [ ] Credential chỉ bind ở scope ngắn, được masking và không dùng cho PR/fork hoặc revision chưa tin cậy.
+- [ ] Notification dùng plugin tra credential bằng ID; Jenkinsfile không chuyển URL/token nhạy cảm vào shell/process argv hoặc payload.
+- [ ] Notification ngoài chỉ chạy từ `main` do Multibranch nhận diện, không có `CHANGE_ID`; PR/fork và Pipeline job thường bị từ chối mặc định.
 - [ ] Mọi step plugin-dependent đã được xác nhận trên controller/agent đích và đã thử với success, failure, unstable, abort.
 
 ## Nguồn Jenkins chính thức và đọc tiếp
@@ -371,7 +376,7 @@ Không dùng abort lab để kiểm tra lệnh release bên ngoài. Đây chỉ 
 - [Pipeline Syntax — Declarative Pipeline](https://www.jenkins.io/doc/book/pipeline/syntax/)
 - [Pipeline: Basic Steps](https://www.jenkins.io/doc/pipeline/steps/workflow-basic-steps/)
 - [JUnit Plugin](https://plugins.jenkins.io/junit/)
-- [Credentials Binding Plugin](https://plugins.jenkins.io/credentials-binding/)
+- [HTTP Request Plugin](https://plugins.jenkins.io/http_request/)
 - [Using credentials](https://www.jenkins.io/doc/book/using/using-credentials/)
 - [Securing Jenkins](https://www.jenkins.io/doc/book/security/)
 
