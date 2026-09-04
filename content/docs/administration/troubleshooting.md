@@ -306,7 +306,7 @@ Sau thay đổi, không chỉ nhìn build “xanh”. So sánh với baseline í
 
 ## Lab sandbox: queue và timeout có chủ đích
 
-Lab này chỉ dành cho Jenkins sandbox tách production. Nó tạo hai failure dễ nhận biết mà không cần credential thật: label không tồn tại làm build chờ queue, và `input` có timeout làm build kết thúc rõ ràng. Dùng job riêng như `troubleshooting-lab`; không chạy trên job release.
+Lab này chỉ dành cho Jenkins sandbox tách production. Trước khi chạy, tạo hoặc kiểm tra một agent sandbox riêng mang label `troubleshooting-lab` tại `/computer/`; built-in node phải giữ `0` executor. Không chạy lab `input` nếu không có agent mang label này, và không gán label đó cho agent production. Với môi trường local, có thể thay bằng một label sandbox riêng tương đương đã kiểm tra, nhưng không dùng `any` cho lab có `input` vì nó giữ executor. Lab tạo hai failure dễ nhận biết mà không cần credential thật: label không tồn tại làm build chờ queue, và `input` có timeout làm build kết thúc rõ ràng. Dùng job riêng như `troubleshooting-lab`; không chạy trên job release.
 
 ```groovy
 pipeline {
@@ -329,11 +329,11 @@ pipeline {
 3. Kết quả mong đợi: queue reason cho biết không có node phù hợp; sau hai phút, build kết thúc `ABORTED` do timeout. Đây là timeout có chủ đích, không phải controller failure.
 4. Lưu URL build, reason và timestamp vào ghi chú lab. Hủy build sớm chỉ nếu cần giải phóng sandbox; không thay đổi labels của production agent.
 
-Để mô phỏng `input` chờ duyệt, thay stage trên bằng stage dùng một agent sandbox có thật:
+Để mô phỏng `input` chờ duyệt, thay stage trên bằng stage ràng buộc vào agent sandbox đã kiểm tra. Nếu `/computer/` không hiển thị agent `Online` mang label `troubleshooting-lab`, dừng lab thay vì đổi sang built-in node hoặc `any`.
 
 ```groovy
 pipeline {
-  agent any
+  agent { label 'troubleshooting-lab' }
 
   stages {
     stage('Input có expiry') {
