@@ -123,12 +123,14 @@ curl --fail-with-body --silent --show-error \
 Mẫu sau là **non-executable** nếu chưa có controller lab, SSH CLI được bật, port SSH, hostname và account được cấp theo policy. Nó chỉ gửi nội dung Jenkinsfile qua stdin; không có credential trong lệnh.
 
 ```bash
-# Prerequisite: controller lab đã bật Jenkins SSH CLI; JENKINS_HOST và port là giá trị do lab công bố.
+# Prerequisite: controller lab đã bật Jenkins SSH CLI; user, hostname và port do lab công bố.
 # Non-executable cho tới khi các biến và quyền SSH CLI được provision ngoài repository.
 set -eu
+: "${JENKINS_SSH_USER:?Đặt user SSH được cấp cho controller lab}"
 : "${JENKINS_HOST:?Đặt hostname controller lab}"
 : "${JENKINS_SSH_PORT:?Đặt port SSH CLI controller lab}"
-ssh -p "$JENKINS_SSH_PORT" "$JENKINS_HOST" declarative-linter < Jenkinsfile
+ssh -l "$JENKINS_SSH_USER" -p "$JENKINS_SSH_PORT" \
+  "$JENKINS_HOST" declarative-linter < Jenkinsfile
 ```
 
 Kết quả thành công thường chứa `Jenkinsfile successfully validated.`; hãy lưu exit status và version controller/plugin cùng PR check. Không hard-code host production, không tắt TLS/CSRF, và không thêm quyền administrator chỉ để linter đi qua.
@@ -380,7 +382,7 @@ set -eu
 test -r "$JENKINS_AUTH_FILE"
 java -jar jenkins-cli.jar -s "$JENKINS_URL" \
   -auth @"$JENKINS_AUTH_FILE" \
-  declarative-linter -f "$LAB_FILE"
+  declarative-linter < "$LAB_FILE"
 ```
 
 Không thay auth file bằng chuỗi `user:token` trong command, không dùng `curl -k`, và không chuyển loopback lab thành endpoint công khai. Nếu endpoint HTTP cần crumb, lấy và gửi crumb/cookie theo policy sandbox; không ghi chúng vào terminal/log. Lệnh không chạy được khi thiếu plugin/runtime là trạng thái hợp lệ cần báo rõ, không phải lý do tắt CSRF hoặc dùng account admin.
