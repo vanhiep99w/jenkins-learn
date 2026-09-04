@@ -189,9 +189,15 @@ POM hoàn chỉnh sau là baseline chạy được cho lab. Nó dùng đúng ver
       <artifactId>jenkins-core</artifactId>
       <scope>provided</scope>
     </dependency>
+    <dependency>
+      <groupId>org.jenkins-ci.plugins.workflow</groupId>
+      <artifactId>workflow-step-api</artifactId>
+    </dependency>
   </dependencies>
 </project>
 ```
+
+BOM chỉ quản lý version; nó không tự thêm library vào classpath hoặc manifest plugin. Vì `SafeEchoStep` dùng Pipeline Step API, POM phải khai báo `org.jenkins-ci.plugins.workflow:workflow-step-api` nhưng không ghi `<version>`: BOM `bom-2.528.x` quản lý version tương thích. Dependency này không dùng `provided`, nên Maven HPI Plugin khai báo plugin runtime dependency trong HPI; ngược lại `jenkins-core` vẫn là `provided` vì controller cung cấp nó.
 
 Không tự thêm cả BOM lẫn version rời cho cùng dependency trừ khi có lý do đã review. Plugin parent/BOM có thể thay đổi theo Jenkins line; lấy mẫu POM hiện hành từ tài liệu phát triển Jenkins rồi điều chỉnh theo baseline của tổ chức. `provided` biểu thị core cung cấp API lúc runtime; nó không cho phép gọi API mới hơn core tối thiểu. Chạy `mvn -B -ntp dependency:tree` trong CI và review thay đổi graph như thay đổi code.
 
@@ -271,6 +277,18 @@ Một `Step` là API mà Jenkinsfile gọi, thường được `StepDescriptor` 
 Skeleton sau ghi thông điệp đã chuẩn hóa. Nó minh họa step không cần agent, command hay credential. Production code cần bổ sung Javadoc, test và thông báo lỗi theo chuẩn plugin.
 
 ```java
+package io.example.jenkins.greeting;
+
+import hudson.Extension;
+import hudson.model.TaskListener;
+import java.util.Set;
+import org.jenkinsci.plugins.workflow.steps.Step;
+import org.jenkinsci.plugins.workflow.steps.StepContext;
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.steps.StepExecution;
+import org.jenkinsci.plugins.workflow.steps.SynchronousNonBlockingStepExecution;
+import org.kohsuke.stapler.DataBoundConstructor;
+
 public final class SafeEchoStep extends Step {
     private final String message;
 
@@ -319,6 +337,8 @@ public final class SafeEchoStep extends Step {
     }
 }
 ```
+
+Đây là skeleton hướng tới compile: imports `hudson.*` đến từ `jenkins-core` và imports `org.jenkinsci.plugins.workflow.steps.*` đến từ dependency `workflow-step-api` trong POM mẫu. Đừng bỏ dependency đó rồi dựa vào một controller có sẵn Pipeline plugin; compile local và HPI runtime dependency phải cùng được khai báo.
 
 Vòng đời step gồm construction từ Jenkinsfile, `start`, execution, completion/failure và có thể resume sau restart tùy loại execution. Nếu step làm việc dài hoặc bất đồng bộ, thiết kế cancel, timeout, persistence và resume rõ ràng; đừng giữ object không serializable, socket hoặc secret lâu sống trong execution state. Test cả hủy build và controller restart nếu step tuyên bố hỗ trợ chúng. Đặt step trong bối cảnh [tổng quan Pipeline](/docs/pipelines/overview).
 
@@ -574,3 +594,5 @@ Không paste toàn bộ `JENKINS_HOME`, thread dump, HTTP header hay Console Out
 - [Plugin Parent 6.2138.v03274d462c13](https://repo.jenkins-ci.org/public/org/jenkins-ci/plugins/plugin/6.2138.v03274d462c13/plugin-6.2138.v03274d462c13.pom)
 - [BOM 2.528.x 6237.v4da_61a_4a_19e5](https://repo.jenkins-ci.org/public/io/jenkins/tools/bom/bom-2.528.x/6237.v4da_61a_4a_19e5/bom-2.528.x-6237.v4da_61a_4a_19e5.pom)
 - [Jenkins core 2.528.3](https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-core/2.528.3/jenkins-core-2.528.3.pom)
+- [Pipeline: Step API Plugin](https://plugins.jenkins.io/workflow-step-api/)
+- [Workflow Step API Maven metadata](https://repo.jenkins-ci.org/public/org/jenkins-ci/plugins/workflow/workflow-step-api/maven-metadata.xml)
