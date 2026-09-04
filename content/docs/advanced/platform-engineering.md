@@ -233,12 +233,22 @@ Lab này không cần Jenkins, plugin, credential hay deploy thật. Nó mô ph�
 
 ### Chuẩn bị sandbox
 
-Trong terminal local, tạo một thư mục tạm và script validation tối thiểu:
+Trong terminal local, tạo một thư mục tạm **có prefix cố định dưới `/tmp`**, marker riêng và script validation tối thiểu. Các biến đường dẫn được `readonly`; không thay chúng bằng đường dẫn worktree, home directory hay bất kỳ đường dẫn tự chọn nào.
 
 ```bash
-SANDBOX="$(mktemp -d)"
-mkdir -p "$SANDBOX/catalog-demo/scripts"
-cd "$SANDBOX/catalog-demo"
+SANDBOX_ROOT="$(mktemp -d /tmp/jenkins-platform-lab.XXXXXX)" || {
+  printf '%s\n' "Could not create sandbox; nothing was deleted." >&2
+  exit 1
+}
+readonly SANDBOX_ROOT
+SANDBOX="$SANDBOX_ROOT/catalog-demo"
+readonly SANDBOX
+MARKER="$SANDBOX_ROOT/.jenkins-platform-lab-marker"
+readonly MARKER
+printf '%s\n' "$SANDBOX_ROOT" > "$MARKER"
+
+mkdir -p "$SANDBOX/scripts"
+cd "$SANDBOX"
 
 cat > scripts/validate.sh <<'SH'
 #!/usr/bin/env sh
@@ -254,6 +264,28 @@ grep -q "agent { label 'sandbox' }" Jenkinsfile
 echo "catalog contract: valid"
 SH
 chmod +x scripts/validate.sh
+
+cleanup_sandbox() {
+  if [ -z "${SANDBOX_ROOT:-}" ] || [ "$SANDBOX_ROOT" = "/" ] || \
+    [ "${SANDBOX_ROOT%/*}" != "/tmp" ] || \
+    [ ! -d "$SANDBOX_ROOT" ] || \
+    [ "$MARKER" != "$SANDBOX_ROOT/.jenkins-platform-lab-marker" ] || \
+    [ ! -f "$MARKER" ] || \
+    [ "$(cat "$MARKER")" != "$SANDBOX_ROOT" ]; then
+    printf '%s\n' "Refusing cleanup: sandbox guard failed; nothing was deleted." >&2
+    return 1
+  fi
+
+  case "${SANDBOX_ROOT##*/}" in
+    jenkins-platform-lab.??????) ;;
+    *)
+      printf '%s\n' "Refusing cleanup: unexpected sandbox name; nothing was deleted." >&2
+      return 1
+      ;;
+  esac
+
+  rm -rf -- "$SANDBOX_ROOT"
+}
 ```
 
 ### Tạo service mẫu và kiểm tra
@@ -290,15 +322,14 @@ Kết quả mong đợi là dòng `catalog contract: valid` và vị trí của 
 
 ### Kết quả mong đợi và cleanup
 
-Không có job Jenkins, artifact, deployment, credential hay network request nào được tạo. Kết thúc lab bằng cách rời thư mục và xóa đúng sandbox do lệnh đầu tiên tạo:
+Không có job Jenkins, artifact, deployment, credential hay network request nào được tạo. Kết thúc lab bằng cách rời thư mục rồi gọi guard đã khai báo ở trên:
 
 ```bash
 cd /
-rm -rf "$SANDBOX"
-unset SANDBOX
+cleanup_sandbox
 ```
 
-Chỉ chạy lệnh cleanup khi `SANDBOX` còn là đường dẫn tạm vừa tạo và đã kiểm tra nó không rỗng. Không thay biến này bằng đường dẫn làm việc, home directory hoặc đường dẫn production.
+Guard chỉ xóa khi `SANDBOX_ROOT` là thư mục tuyệt đối trực tiếp dưới `/tmp`, có tên do mẫu `jenkins-platform-lab.XXXXXX` tạo, tồn tại và có marker đúng vị trí với nội dung trùng đường dẫn sandbox. Nếu một điều kiện sai, guard in `Refusing cleanup: ...; nothing was deleted.` và không chạy `rm -rf`. Không sửa hoặc gán lại các biến `readonly`; muốn chạy lại lab, hãy bắt đầu một terminal mới và tạo sandbox mới.
 
 ## Troubleshooting
 
