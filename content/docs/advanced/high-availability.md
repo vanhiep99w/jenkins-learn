@@ -211,14 +211,47 @@ Sau sự cố, đối soát webhook, build số, deployment, artifact và thay �
 
 ## Lab failover local mô phỏng
 
-Lab này chỉ mô phỏng endpoint chuyển từ primary sang standby bằng hai HTTP server Python và hai thư mục trạng thái **riêng** dưới thư mục tạm. Nó không cài Jenkins, không dùng Docker/Kubernetes, không mount volume dùng chung và không mô phỏng chính xác storage fencing. Không chạy nó trên host production hay thay giá trị `LAB_ROOT` bằng `JENKINS_HOME`.
+Lab này chỉ mô phỏng endpoint chuyển từ primary sang standby bằng hai HTTP server Python và hai thư mục trạng thái **riêng** dưới `/tmp`. Nó không cài Jenkins, không dùng Docker/Kubernetes, không mount volume dùng chung và không mô phỏng chính xác storage fencing. Lệnh đầu tạo một thư mục ngẫu nhiên bằng `mktemp` rồi khóa biến đường dẫn bằng `readonly`; không chạy lab trên host production, không thay `LAB_ROOT` bằng `JENKINS_HOME` và không gán path tùy ý khi cleanup.
 
 ### Chuẩn bị hai home độc lập
 
 ```bash
-LAB_ROOT="${TMPDIR:-/tmp}/jenkins-ha-lab-$USER"
+LAB_ROOT="$(mktemp -d /tmp/jenkins-ha-lab.XXXXXX)" || {
+  printf '%s\n' 'Could not create lab sandbox; nothing was deleted.' >&2
+  exit 1
+}
+readonly LAB_ROOT
+LAB_MARKER="$LAB_ROOT/.jenkins-ha-lab-marker"
+readonly LAB_MARKER
+printf '%s\n' "$LAB_ROOT" > "$LAB_MARKER"
+
 PRIMARY_PORT=18080
 STANDBY_PORT=18081
+readonly PRIMARY_PORT STANDBY_PORT
+
+cleanup_lab() {
+  if [ -z "${LAB_ROOT:-}" ] || [ "$LAB_ROOT" = "/" ] || \
+    [ "${LAB_ROOT%/*}" != "/tmp" ] || \
+    [ ! -d "$LAB_ROOT" ] || \
+    [ -z "${LAB_MARKER:-}" ] || \
+    [ "$LAB_MARKER" != "$LAB_ROOT/.jenkins-ha-lab-marker" ] || \
+    [ ! -f "$LAB_MARKER" ] || [ ! -s "$LAB_MARKER" ] || \
+    [ "$(cat "$LAB_MARKER" 2>/dev/null)" != "$LAB_ROOT" ]; then
+    printf '%s\n' 'Refusing cleanup: lab guard failed; nothing was deleted.' >&2
+    return 1
+  fi
+
+  case "${LAB_ROOT##*/}" in
+    jenkins-ha-lab.??????) ;;
+    *)
+      printf '%s\n' 'Refusing cleanup: unexpected lab name; nothing was deleted.' >&2
+      return 1
+      ;;
+  esac
+
+  rm -rf -- "$LAB_ROOT"
+}
+
 mkdir -p "$LAB_ROOT/primary/home" "$LAB_ROOT/standby/home"
 printf 'primary active; simulated Jenkins state\n' > "$LAB_ROOT/primary/home/state.txt"
 printf 'primary health: OK\n' > "$LAB_ROOT/primary/healthz"
@@ -258,18 +291,15 @@ Kết quả mong đợi: `standby health: OK` và `simulated failover: PASS`. Po
 
 ### Kết quả mong đợi và cleanup
 
-Dừng server standby, rồi chỉ xóa thư mục mà lab vừa tạo. Guard từ chối mọi path khác prefix lab.
+Dừng server standby, rồi gọi guard đã khai báo khi tạo sandbox. `cleanup_lab` chỉ chạy `rm -rf` khi path không rỗng, là thư mục trực tiếp dưới `/tmp`, có tên `jenkins-ha-lab.XXXXXX`, có marker đúng vị trí và marker chứa chính xác path vừa được `mktemp` tạo. Nếu bất kỳ kiểm tra nào không đạt, hàm in thông báo từ chối và không xóa gì.
 
 ```bash
 kill "${STANDBY_PID:-}" 2>/dev/null || true
 wait "${STANDBY_PID:-}" 2>/dev/null || true
-case "$LAB_ROOT" in
-  "${TMPDIR:-/tmp}"/jenkins-ha-lab-*) rm -rf -- "$LAB_ROOT" ;;
-  *) printf 'Refuse cleanup outside lab: %s\n' "$LAB_ROOT" ;;
-esac
+cleanup_lab
 ```
 
-Kết quả mong đợi: thư mục tạm của lab biến mất; không có Jenkins controller, volume, namespace hay dữ liệu thật nào bị thay đổi. Để diễn tập production, dùng game day được phê duyệt với environment cô lập/không critical và runbook riêng, không tái sử dụng lab này.
+Kết quả mong đợi: với sandbox do bước đầu tạo, thư mục tạm của lab biến mất. Với guard thất bại, xuất hiện `Refusing cleanup: ...; nothing was deleted.` và sandbox không bị xóa. Không có Jenkins controller, volume, namespace hay dữ liệu thật nào bị thay đổi. Để diễn tập production, dùng game day được phê duyệt với environment cô lập/không critical và runbook riêng, không tái sử dụng lab này.
 
 ## Troubleshooting
 
