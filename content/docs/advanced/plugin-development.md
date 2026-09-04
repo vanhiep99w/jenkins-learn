@@ -6,7 +6,7 @@ description: "Thiết kế, kiểm thử và phát hành Jenkins plugin an toàn
 Jenkins plugin là mã Java chạy cùng Jenkins và mở rộng controller, Pipeline hoặc giao diện. Vì plugin có thể chạm đến cấu hình, dữ liệu build và ranh giới controller–agent, một plugin hữu ích phải đồng thời có API ổn định, test tái lập và thiết kế giảm đặc quyền.
 
 <Callout type="warn" title="Giả định và phạm vi">
-  Trang này dành cho maintainer phát triển plugin riêng. Mọi version trong ví dụ là **biến cần chọn khi review**, không phải khuyến nghị nâng cấp tự động. Thử nghiệm trên controller local hoặc staging cô lập; không dùng lab để cài artifact chưa review, gọi production, hoặc đưa secret vào source, fixture hay log.
+  Trang này dành cho maintainer phát triển plugin riêng. Lab dùng một baseline đã pin: Java 17, Apache Maven 3.9.6, Maven Archetype Plugin 3.3.1, `empty-plugin` 1.37, Jenkins Plugin Parent 6.2138.v03274d462c13, Jenkins core 2.528.3 và BOM 2.528.x 6237.v4da_61a_4a_19e5. Đây là tổ hợp minh họa đã đối chiếu artifact nguồn, không phải lời hứa hỗ trợ mọi Jenkins LTS. Thử nghiệm trên controller local hoặc staging cô lập; không dùng lab để cài artifact chưa review, gọi production, hoặc đưa secret vào source, fixture hay log.
 </Callout>
 
 ## Mục lục
@@ -77,6 +77,8 @@ Khi người dùng lưu cấu hình, Stapler chuyển request vào `Descriptor` 
 
 Ghi rõ giả định cho mỗi release, ví dụ: Jenkins LTS/core tối thiểu, Java tối thiểu, plugin dependency trực tiếp và Pipeline plugin cần có. Khóa tập version đó trong POM và trong ma trận CI. Không suy ra rằng plugin mới nhất chạy được trên mọi LTS, hoặc core mới nhất giữ nguyên mọi API. Khi thay core hay một dependency chung, đọc release notes, kiểm tra `requiredCore` và chạy test trên đúng tổ hợp trước khi publish.
 
+Baseline tái lập của bài này là **Java 17 + Apache Maven 3.9.6 + Maven Archetype Plugin 3.3.1 + `io.jenkins.archetypes:empty-plugin:1.37` + Plugin Parent `6.2138.v03274d462c13` + Jenkins core `2.528.3` + `bom-2.528.x:6237.v4da_61a_4a_19e5`**. Parent đã pin yêu cầu Maven tối thiểu 3.9.6 và compile release 17; core 2.528.3 thuộc dòng hỗ trợ Java 17 hoặc 21. HPI Maven Plugin `3.1802.v14f4709445a_b_` được parent này quản lý. Giữ nguyên cả tập, kể cả BOM, khi chạy lab. Khi nâng bất kỳ phần nào, lập một matrix mới thay vì trộn version.
+
 Bảng sau giúp biến giả định thành evidence thay vì lời hứa:
 
 | Bề mặt | Câu hỏi phải trả lời | Evidence trước release |
@@ -94,19 +96,20 @@ Bảng sau giúp biến giả định thành evidence thay vì lời hứa:
 Archetype Jenkins tạo bố cục khởi đầu, nhưng output vẫn là source code cần review. Tạo repository mới, đặt `groupId`, `artifactId`, `displayName`, license và SCM URL theo chuẩn tổ chức; không copy `target/`, `.hpi`, token, file `JENKINS_HOME` hay config từ controller thật vào repository.
 
 ```bash
-# Chạy trong thư mục lab trống; thay các giá trị in hoa bằng metadata của plugin.
-mvn -B archetype:generate \
+# Chạy trong thư mục lab trống. Tất cả version của lệnh này đã pin.
+mvn -B org.apache.maven.plugins:maven-archetype-plugin:3.3.1:generate \
   -DarchetypeGroupId=io.jenkins.archetypes \
   -DarchetypeArtifactId=empty-plugin \
-  -DarchetypeVersion=REVIEWED_ARCHETYPE_VERSION \
+  -DarchetypeVersion=1.37 \
   -DgroupId=io.example.jenkins \
   -DartifactId=safe-greeting \
   -Dversion=0.1.0-SNAPSHOT \
   -Dpackage=io.example.jenkins.greeting \
+  -DhostOnJenkinsGitHub=false \
   -DinteractiveMode=false
 ```
 
-`REVIEWED_ARCHETYPE_VERSION` phải là version đã được nhóm chọn từ nguồn Jenkins/Maven tin cậy; đây cố ý không phải `LATEST`. Review POM được sinh ra trước khi download hoặc chạy plugin. Nếu môi trường dùng mirror, dùng mirror đã phê duyệt và có khả năng truy vết artifact, không tắt TLS hay thêm repository tùy tiện.
+Lệnh dùng Maven Archetype Plugin 3.3.1 và `empty-plugin` 1.37 từ Maven Central. Archetype 1.37 sinh Plugin Parent `6.2138.v03274d462c13`, Jenkins baseline `2.528`/core `2.528.3` và BOM `bom-2.528.x:6237.v4da_61a_4a_19e5`; POM hoàn chỉnh ở phần kế tiếp cố ý ghi lại cùng tập này. Review source và metadata dự án sinh ra trước release, nhưng không sửa version set trong lúc chạy lab. Nếu môi trường dùng mirror, dùng mirror đã phê duyệt và có khả năng truy vết artifact, không tắt TLS hay thêm repository tùy tiện.
 
 ### Cấu trúc source, test và release
 
@@ -128,7 +131,7 @@ Giữ test fixture nhỏ và tổng hợp. Một `config.xml` fixture phải ch�
 
 Maven HPI Plugin là phần Maven đóng gói metadata và classes thành HPI, đồng thời tích hợp chạy/test plugin. Jenkins Plugin Parent POM cung cấp convention, plugin management và cấu hình test phổ biến. **BOM** (Bill of Materials) là danh sách version tương thích được import vào `dependencyManagement`; nó giúp những dependency Jenkins không trôi version độc lập.
 
-POM rút gọn sau minh họa các điểm cần quyết định. Giá trị `REVIEWED_*` phải được thay bằng version cụ thể đã được kiểm thử, không commit nguyên văn template.
+POM hoàn chỉnh sau là baseline chạy được cho lab. Nó dùng đúng version do archetype 1.37 sinh ra, đồng thời pin rõ Java/Maven release cho người đọc kiểm tra. Đừng thay từng version riêng lẻ; nâng version là một thay đổi compatibility phải có matrix và review mới.
 
 ```xml
 <project xmlns="http://maven.apache.org/POM/4.0.0"
@@ -139,7 +142,7 @@ POM rút gọn sau minh họa các điểm cần quyết định. Giá trị `RE
   <parent>
     <groupId>org.jenkins-ci.plugins</groupId>
     <artifactId>plugin</artifactId>
-    <version>REVIEWED_PLUGIN_PARENT_VERSION</version>
+    <version>6.2138.v03274d462c13</version>
     <relativePath />
   </parent>
 
@@ -147,23 +150,38 @@ POM rút gọn sau minh họa các điểm cần quyết định. Giá trị `RE
   <artifactId>safe-greeting</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>hpi</packaging>
+  <name>Safe Greeting Plugin</name>
 
   <properties>
-    <jenkins.version>REVIEWED_JENKINS_CORE_VERSION</jenkins.version>
-    <java.level>REVIEWED_JAVA_RELEASE</java.level>
+    <jenkins.baseline>2.528</jenkins.baseline>
+    <jenkins.version>2.528.3</jenkins.version>
+    <maven.compiler.release>17</maven.compiler.release>
   </properties>
 
   <dependencyManagement>
     <dependencies>
       <dependency>
         <groupId>io.jenkins.tools.bom</groupId>
-        <artifactId>bom-REVIEWED_JENKINS_LINE</artifactId>
-        <version>REVIEWED_BOM_VERSION</version>
+        <artifactId>bom-2.528.x</artifactId>
+        <version>6237.v4da_61a_4a_19e5</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <repositories>
+    <repository>
+      <id>repo.jenkins-ci.org</id>
+      <url>https://repo.jenkins-ci.org/public/</url>
+    </repository>
+  </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>repo.jenkins-ci.org</id>
+      <url>https://repo.jenkins-ci.org/public/</url>
+    </pluginRepository>
+  </pluginRepositories>
 
   <dependencies>
     <dependency>
@@ -430,41 +448,65 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
 
 ### Điều kiện trước khi chạy
 
-- JDK được Jenkins core mục tiêu hỗ trợ, với `JAVA_HOME` và `java -version` khớp POM.
-- Maven 3.9+ hoặc Maven Wrapper đã được repository chọn; Maven phải truy cập repository/mirror đã phê duyệt.
+- JDK 17, với `JAVA_HOME` trỏ tới JDK đó và `java -version` báo 17.
+- Apache Maven 3.9.6. Plugin Parent `6.2138.v03274d462c13` yêu cầu Maven từ 3.9.6 và compile release 17.
+- Maven phải truy cập Maven Central và `https://repo.jenkins-ci.org/public/`, hoặc mirror đã phê duyệt có cùng artifact đã pin.
 - Máy có đủ disk/RAM để Maven tải dependency và Jenkins Test Harness khởi động runtime test.
-- Nếu dùng `mvn hpi:run`, đây là Jenkins runtime local cô lập: đặt `JENKINS_HOME` vào thư mục tạm, dùng port loopback trống, không import plugin/config/credential production.
+- Nếu dùng `mvn hpi:run`, đây là Jenkins runtime local cô lập: `JENKINS_HOME` được tạo dưới `/tmp/jenkins-plugin-lab.*`, port loopback `8085` phải đang trống, và không được import plugin/config/credential production.
 
 ### Tạo, kiểm tra và dọn dẹp
 
-1. Tạo skeleton bằng archetype ở phần trên trong thư mục tạm, thay mọi giá trị `REVIEWED_*` bằng version cụ thể tương thích đã được nhóm review.
-2. Mở `pom.xml`; xác nhận `packaging` là `hpi`, `jenkins.version`, Java, parent/BOM và repository/mirror đều đúng baseline. Chạy dependency tree để xem graph thực tế.
-3. Thêm một service thuần Java và `JenkinsRule` test trước khi thêm UI/Remoting. Chạy compile/test trong project mới:
+1. Tạo một parent sandbox có prefix cố định và marker trước khi chạy **nguyên văn** lệnh archetype đã pin ở phần trên. `readonly` ngăn shell vô tình gán lại đường dẫn cleanup trong cùng session:
 
    ```bash
-   mvn -B -ntp clean verify
+   LAB_PARENT="$(mktemp -d /tmp/jenkins-plugin-lab.XXXXXX)"
+   readonly LAB_PARENT
+   printf 'jenkins-plugin-lab\n' > "$LAB_PARENT/.jenkins-plugin-lab"
+   cd "$LAB_PARENT"
    ```
 
-4. Chỉ khi muốn kiểm tra UI local, khởi động runtime cô lập. Không đăng nhập bằng tài khoản thật và không cài plugin ngoài danh sách test:
+   Lệnh archetype tạo `$LAB_PARENT/safe-greeting` với `empty-plugin` 1.37, Parent `6.2138.v03274d462c13`, core `2.528.3` và BOM `6237.v4da_61a_4a_19e5`.
+
+2. Đi vào project, đối chiếu POM với baseline ở trên, rồi compile/test. `-ntp` chỉ giảm progress transfer; nó không thay đổi version resolution:
 
    ```bash
-   export JENKINS_HOME="$(mktemp -d)"
+   cd "$LAB_PARENT/safe-greeting"
+   mvn -B -ntp clean verify
+   mvn -B -ntp dependency:tree
+   ```
+
+3. Chỉ khi muốn kiểm tra UI local, tạo `JENKINS_HOME` là **con trực tiếp** của sandbox có marker riêng, rồi khởi động runtime cô lập. Không đăng nhập bằng tài khoản thật và không cài plugin ngoài danh sách test:
+
+   ```bash
+   LAB_HOME="$(mktemp -d "$LAB_PARENT/jenkins-home.XXXXXX")"
+   readonly LAB_HOME
+   printf 'jenkins-plugin-lab-home\n' > "$LAB_HOME/.jenkins-plugin-lab-home"
+   export JENKINS_HOME="$LAB_HOME"
    mvn -B -ntp hpi:run -Djetty.port=8085
    ```
 
    Mở `http://127.0.0.1:8085/`, quan sát plugin mẫu load, rồi dừng process bằng `Ctrl+C`. Không dùng endpoint này để thử quyền admin hoặc upload artifact.
 
-5. Dọn runtime local sau khi process đã dừng. Chỉ xóa đúng thư mục tạm vừa tạo, sau khi in và kiểm tra biến:
+4. Sau khi process đã dừng, cleanup chỉ tiếp tục khi **mọi** guard xác nhận đúng parent prefix, cả hai marker và quan hệ parent–child. Bất kỳ guard nào fail đều `exit 1` trước lệnh xóa và không đụng đường dẫn khác:
 
    ```bash
-   test -n "$JENKINS_HOME" && printf '%s\n' "$JENKINS_HOME"
-   rm -rf -- "$JENKINS_HOME"
+   case "$LAB_PARENT" in
+     /tmp/jenkins-plugin-lab.*) ;;
+     *) printf '%s\n' 'Refuse cleanup: unexpected lab parent' >&2; exit 1 ;;
+   esac
+   if [ ! -f "$LAB_PARENT/.jenkins-plugin-lab" ] \
+     || [ ! -f "$LAB_HOME/.jenkins-plugin-lab-home" ] \
+     || [ "$(dirname -- "$LAB_HOME")" != "$LAB_PARENT" ]; then
+     printf '%s\n' 'Refuse cleanup: lab guards failed' >&2
+     exit 1
+   fi
+   rm -rf --one-file-system -- "$LAB_PARENT"
    unset JENKINS_HOME
    ```
 
 ### Kết quả mong đợi
 
-`mvn clean verify` kết thúc `BUILD SUCCESS`, tạo report test trong `target/` và không cần secret. Runtime `hpi:run` chỉ bind loopback port đã chọn; Console Output không chứa token/password. Sau cleanup, thư mục `JENKINS_HOME` tạm không còn và repository source không có file runtime hoặc artifact mới để commit.
+Với Java 17, Maven 3.9.6 và version set đã pin, `mvn clean verify` kết thúc `BUILD SUCCESS`, tạo report test trong `target/` và không cần secret. Runtime `hpi:run` chỉ bind loopback port `8085`; Console Output không chứa token/password. Sau cleanup hợp lệ, toàn bộ `$LAB_PARENT` không còn; nếu bất kỳ guard nào fail, script dừng và không xóa gì.
 
 <Callout type="idea" title="Giữ lab có thể lặp lại">
   Ghi JDK, Maven, archetype/parent/BOM/core versions, command, commit SHA và kết quả test vào pull request hoặc release evidence. Không đính kèm `.m2` cache, `target/`, home runtime hay log chưa redact để “chứng minh” lab.
@@ -516,3 +558,9 @@ Không paste toàn bộ `JENKINS_HOME`, thread dump, HTTP header hay Console Out
 - [Jenkins Security](https://www.jenkins.io/security/)
 - [Jenkins Security Advisories](https://www.jenkins.io/security/advisories/)
 - [Plugin Compatibility Tester](https://github.com/jenkinsci/plugin-compat-tester)
+- [Java support policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/)
+- [Empty Plugin Archetype 1.37 trên Maven Central](https://repo.maven.apache.org/maven2/io/jenkins/archetypes/empty-plugin/1.37/empty-plugin-1.37.jar)
+- [Maven Archetype Plugin 3.3.1 trên Maven Central](https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-archetype-plugin/3.3.1/maven-archetype-plugin-3.3.1.pom)
+- [Plugin Parent 6.2138.v03274d462c13](https://repo.jenkins-ci.org/public/org/jenkins-ci/plugins/plugin/6.2138.v03274d462c13/plugin-6.2138.v03274d462c13.pom)
+- [BOM 2.528.x 6237.v4da_61a_4a_19e5](https://repo.jenkins-ci.org/public/io/jenkins/tools/bom/bom-2.528.x/6237.v4da_61a_4a_19e5/bom-2.528.x-6237.v4da_61a_4a_19e5.pom)
+- [Jenkins core 2.528.3](https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-core/2.528.3/jenkins-core-2.528.3.pom)
