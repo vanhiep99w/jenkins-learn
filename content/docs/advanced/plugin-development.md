@@ -224,7 +224,6 @@ public final class GreetingConfiguration extends GlobalConfiguration {
         save();
     }
 
-    @RequirePOST
     public FormValidation doCheckGreeting(@QueryParameter String value) {
         Jenkins.get().checkPermission(Jenkins.ADMINISTER);
         try {
@@ -249,7 +248,7 @@ Trong code thật, chọn permission theo đối tượng: `Jenkins.ADMINISTER` 
 
 ### Stapler, Jelly và UI
 
-Stapler route HTTP và databind request vào các method/đối tượng Jenkins. Jelly là view XML cho form và trang Jenkins. Vì request có thể do client tự tạo, validation trong `doCheck...` không chứng minh `configure` hoặc `do...` an toàn. Kiểm tra kiểu, độ dài, format, authorization và trạng thái server ở mọi điểm ghi dữ liệu.
+Stapler route HTTP và databind request vào các method/đối tượng Jenkins. Jelly là view XML cho form và trang Jenkins. `doCheck...` chỉ trả `FormValidation`, không được ghi state hay tạo side effect; form UI thường gọi validation này bằng GET. Vì request có thể do client tự tạo, validation read-only không chứng minh `configure` hoặc handler `do...` an toàn. Kiểm tra kiểu, độ dài, format, authorization và trạng thái server ở mọi điểm ghi dữ liệu.
 
 Một `config.jelly` nên dùng tag form chuẩn để Jenkins liên kết field với descriptor:
 
@@ -263,7 +262,7 @@ Một `config.jelly` nên dùng tag form chuẩn để Jenkins liên kết field
 
 Không dựng HTML/JavaScript bằng chuỗi chứa input từ người dùng. Khi hiển thị dữ liệu động, dùng helper/tag API escape đúng context của Jenkins: HTML text, HTML attribute, URL và JavaScript là các context khác nhau. Không đánh dấu dữ liệu là “safe HTML” chỉ vì nó đã được validation trước đó. Nếu cần rich text, dùng renderer đã được Jenkins hỗ trợ với allowlist hẹp và test payload XSS.
 
-`@RequirePOST` giúp Stapler từ chối thao tác thay đổi qua GET và làm việc cùng cơ chế crumb/CSRF của Jenkins. Không tắt CSRF globally để endpoint hoạt động. Client UI nên lấy crumb theo cơ chế Jenkins; REST client phải dùng cách xác thực/crumb phù hợp cấu hình controller. Đối chiếu policy chung tại [cấu hình hệ thống](/docs/administration/system-configuration).
+Không gắn `@RequirePOST` vào `doCheck...` read-only: Jelly gọi validation form bằng GET và method này không được có side effect. Ngược lại, `configure` và handler `do...` sửa state phải kiểm tra authorization server-side, dùng `@RequirePOST` để Stapler từ chối GET, rồi đi qua cơ chế crumb/CSRF của Jenkins. Không tắt CSRF globally để endpoint hoạt động. Client UI nên lấy crumb theo cơ chế Jenkins; REST client phải dùng cách xác thực/crumb phù hợp cấu hình controller. Đối chiếu policy chung tại [cấu hình hệ thống](/docs/administration/system-configuration).
 
 ### Pipeline step và vòng đời thực thi
 
@@ -331,8 +330,9 @@ Threat model trước khi code: ai gọi endpoint/step, input đến từ đâu,
 
 - Dùng permission Jenkins có scope hẹp nhất và gọi `checkPermission` ở server-side trước read/modify/export thao tác nhạy cảm. Đừng quyết định quyền từ một field gửi bởi browser.
 - Áp dụng `@RequirePOST` cho endpoint làm thay đổi trạng thái. Giữ crumb/CSRF protection bật; không chấp nhận bypass bằng query parameter tự đặt.
+- `doCheck...` chỉ validate read-only, thường được form gọi bằng GET và không dùng `@RequirePOST`. Nó vẫn cần authorization phù hợp nếu kết quả validation tiết lộ capability hoặc metadata nhạy cảm.
 - Coi mọi `@QueryParameter`, JSON, form field, tên job, URL callback và metadata SCM là dữ liệu không tin cậy. Parse theo schema, đặt giới hạn kích thước, allowlist enum/host khi cần và báo lỗi không lộ thông tin nội bộ.
-- Không biến endpoint GET “preview” thành nơi có side effect, không dùng GET để rotate credential, trigger build hoặc sửa cấu hình.
+- Không biến endpoint GET “preview” hay `doCheck...` thành nơi có side effect, không dùng GET để rotate credential, trigger build hoặc sửa cấu hình.
 
 ### XSS, path và command injection
 
@@ -381,15 +381,15 @@ Ví dụ hướng kiểm thử permission và validation:
 
 @Test public void rejects_line_breaks_and_requires_admin() throws Exception {
     GreetingConfiguration config = GlobalConfiguration.all().get(GreetingConfiguration.class);
-    JenkinsRule.WebClient client = j.createWebClient();
 
     assertThat(config.doCheckGreeting("hello\nworld").kind, is(FormValidation.Kind.ERROR));
-    // Endpoint HTTP thật phải được gọi bằng user không có ADMINISTER trong test riêng.
-    // Test đó cần xác nhận phản hồi bị từ chối, không chỉ kiểm tra nút UI bị ẩn.
+    // Test HTTP riêng gọi doCheck... bằng GET và xác nhận không có side effect.
+    // Test configure/handler ghi state phải gọi POST có crumb bằng user không có ADMINISTER,
+    // rồi xác nhận bị từ chối thay vì chỉ kiểm tra nút UI bị ẩn.
 }
 ```
 
-Đây là khung minh họa, không phải bộ test hoàn chỉnh: dự án phải tạo user/authorization strategy test phù hợp và kiểm tra endpoint qua HTTP khi có Stapler/CSRF behavior. Thêm case boundary (rỗng, 80/81 ký tự), payload XSS, ID path sai và request không có quyền.
+Đây là khung minh họa, không phải bộ test hoàn chỉnh: dự án phải tạo user/authorization strategy test phù hợp. Kiểm tra `doCheck...` qua GET để xác nhận validation read-only; kiểm tra riêng handler ghi qua POST có crumb/CSRF behavior. Thêm case boundary (rỗng, 80/81 ký tự), payload XSS, ID path sai và request không có quyền.
 
 ### UI, integration và Plugin Compatibility Tester
 
@@ -461,6 +461,7 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
    ```bash
    LAB_PARENT="$(mktemp -d /tmp/jenkins-plugin-lab.XXXXXX)"
    readonly LAB_PARENT
+   LAB_HOME=''
    printf 'jenkins-plugin-lab\n' > "$LAB_PARENT/.jenkins-plugin-lab"
    cd "$LAB_PARENT"
    ```
@@ -479,7 +480,6 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
 
    ```bash
    LAB_HOME="$(mktemp -d "$LAB_PARENT/jenkins-home.XXXXXX")"
-   readonly LAB_HOME
    printf 'jenkins-plugin-lab-home\n' > "$LAB_HOME/.jenkins-plugin-lab-home"
    export JENKINS_HOME="$LAB_HOME"
    mvn -B -ntp hpi:run -Djetty.port=8085
@@ -487,26 +487,36 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
 
    Mở `http://127.0.0.1:8085/`, quan sát plugin mẫu load, rồi dừng process bằng `Ctrl+C`. Không dùng endpoint này để thử quyền admin hoặc upload artifact.
 
-4. Sau khi process đã dừng, cleanup chỉ tiếp tục khi **mọi** guard xác nhận đúng parent prefix, cả hai marker và quan hệ parent–child. Bất kỳ guard nào fail đều `exit 1` trước lệnh xóa và không đụng đường dẫn khác:
+4. Sau compile/test-only **hoặc** sau khi process `hpi:run` đã dừng, cleanup luôn xác nhận prefix và marker của parent. `LAB_HOME=''` đã được khai báo từ bước 1 nên vẫn an toàn khi shell dùng `set -u`. Chỉ khi runtime tùy chọn đã tạo `LAB_HOME` thì script mới kiểm tra prefix child, marker child và quan hệ parent–child. Bất kỳ guard nào fail đều `exit 1` trước lệnh xóa và không đụng đường dẫn khác:
 
    ```bash
    case "$LAB_PARENT" in
      /tmp/jenkins-plugin-lab.*) ;;
      *) printf '%s\n' 'Refuse cleanup: unexpected lab parent' >&2; exit 1 ;;
    esac
-   if [ ! -f "$LAB_PARENT/.jenkins-plugin-lab" ] \
-     || [ ! -f "$LAB_HOME/.jenkins-plugin-lab-home" ] \
-     || [ "$(dirname -- "$LAB_HOME")" != "$LAB_PARENT" ]; then
-     printf '%s\n' 'Refuse cleanup: lab guards failed' >&2
+   if [ ! -f "$LAB_PARENT/.jenkins-plugin-lab" ]; then
+     printf '%s\n' 'Refuse cleanup: lab parent marker missing' >&2
      exit 1
    fi
+   if [ -n "$LAB_HOME" ]; then
+     case "$LAB_HOME" in
+       "$LAB_PARENT"/jenkins-home.*) ;;
+       *) printf '%s\n' 'Refuse cleanup: unexpected lab home' >&2; exit 1 ;;
+     esac
+     if [ ! -f "$LAB_HOME/.jenkins-plugin-lab-home" ] \
+       || [ "$(dirname -- "$LAB_HOME")" != "$LAB_PARENT" ]; then
+       printf '%s\n' 'Refuse cleanup: lab home guards failed' >&2
+       exit 1
+     fi
+   fi
+   cd / || exit 1
    rm -rf --one-file-system -- "$LAB_PARENT"
    unset JENKINS_HOME
    ```
 
 ### Kết quả mong đợi
 
-Với Java 17, Maven 3.9.6 và version set đã pin, `mvn clean verify` kết thúc `BUILD SUCCESS`, tạo report test trong `target/` và không cần secret. Runtime `hpi:run` chỉ bind loopback port `8085`; Console Output không chứa token/password. Sau cleanup hợp lệ, toàn bộ `$LAB_PARENT` không còn; nếu bất kỳ guard nào fail, script dừng và không xóa gì.
+Với Java 17, Maven 3.9.6 và version set đã pin, `mvn clean verify` kết thúc `BUILD SUCCESS`, tạo report test trong `target/` và không cần secret. Nhánh compile/test-only cleanup parent sandbox mà không cần `LAB_HOME`. Nếu chạy runtime tùy chọn, `hpi:run` chỉ bind loopback port `8085` và Console Output không chứa token/password; cleanup kiểm tra thêm marker child. Sau cleanup hợp lệ, toàn bộ `$LAB_PARENT` không còn; nếu bất kỳ guard nào fail, script dừng và không xóa gì.
 
 <Callout type="idea" title="Giữ lab có thể lặp lại">
   Ghi JDK, Maven, archetype/parent/BOM/core versions, command, commit SHA và kết quả test vào pull request hoặc release evidence. Không đính kèm `.m2` cache, `target/`, home runtime hay log chưa redact để “chứng minh” lab.
@@ -519,7 +529,7 @@ Với Java 17, Maven 3.9.6 và version set đã pin, `mvn clean verify` kết th
 | Maven không resolve được parent/BOM | Mirror, TLS, repository policy hoặc version sai | Kiểm tra URL/mirror và version pin; không tắt TLS hay chuyển sang repository không kiểm soát. |
 | Plugin load fail lúc test/runtime | `requiredCore`, Java hoặc dependency graph không khớp | Đọc stack trace đã redact, đối chiếu effective POM và baseline matrix. |
 | Extension/step không xuất hiện | Thiếu `@Extension`, descriptor/symbol sai hoặc package/resource không khớp | Viết `JenkinsRule` xác nhận extension registry; kiểm tra class/resource path. |
-| Form validate được nhưng lưu lỗi | Validation chỉ ở client hoặc `configure`/databinding khác kỳ vọng | Test POST thật với quyền phù hợp, kiểm tra dữ liệu sau reload và bảo toàn CSRF. |
+| Form validate được nhưng lưu lỗi | `doCheck...` chỉ validate; `configure`/databinding ghi state có kỳ vọng khác | Test `doCheck...` bằng GET không side effect; test `configure` bằng POST có crumb, quyền phù hợp và dữ liệu sau reload. |
 | Test harness flaky | Port, thread, thời gian hoặc fixture dùng state toàn cục | Cô lập fixture, đóng resource, tránh sleep cố định và tái tạo bằng command/commit/JDK đã ghi. |
 | Agent operation treo | Remoting disconnect, retry không giới hạn hoặc step không xử lý cancel | Đặt timeout/cancel/idempotency, log metadata đã redact và xem [logs và diagnostics](/docs/administration/logs). |
 
