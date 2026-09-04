@@ -220,13 +220,28 @@ sequenceDiagram
 
 ### Tạo repository mẫu
 
-Trên máy lab riêng, tạo repository local; không dùng remote production, credential hoặc controller dùng chung:
+Trên máy lab riêng, tạo một **sandbox duy nhất** bằng `mktemp -d`; không dùng remote production, credential hoặc controller dùng chung. Không xóa path nào trước khi tạo. Giữ shell này mở cho tới khi hoàn tất lab, vì biến `readonly` bên dưới là bằng chứng liên kết giữa sandbox, repository và marker.
 
 ```bash
-export LAB_ROOT=/tmp/jenkins-shared-library-lab
-rm -rf "$LAB_ROOT"
-mkdir -p "$LAB_ROOT/ci-lib"/{vars,src/org/acme/ci,resources/org/acme/ci}
-cd "$LAB_ROOT/ci-lib"
+set -eu
+umask 077
+readonly LAB_PARENT='/tmp'
+readonly LAB_PREFIX='jenkins-shared-library-lab.'
+LAB_SANDBOX="$(mktemp -d "${LAB_PARENT}/${LAB_PREFIX}XXXXXX")"
+readonly LAB_SANDBOX
+readonly LAB_REPO="${LAB_SANDBOX}/ci-lib"
+readonly LAB_MARKER="${LAB_SANDBOX}/.jenkins-shared-library-lab-marker"
+
+case "$LAB_SANDBOX" in
+  "$LAB_PARENT"/"$LAB_PREFIX"*) ;;
+  *) printf >&2 'Không tạo lab: sandbox không có prefix mong đợi.\n'; exit 1 ;;
+esac
+[ "$(dirname -- "$LAB_SANDBOX")" = "$LAB_PARENT" ] || {
+  printf >&2 'Không tạo lab: sandbox không là child trực tiếp của /tmp.\n'; exit 1;
+}
+printf '%s\n' 'jenkins-shared-library-lab-v1' > "$LAB_MARKER"
+mkdir -p "$LAB_REPO"/{vars,src/org/acme/ci,resources/org/acme/ci}
+cd "$LAB_REPO"
 git init -b main
 git config user.name 'Lab User'
 git config user.email 'lab@example.invalid'
@@ -260,9 +275,11 @@ git add . && git commit -m 'Add safe lab library'
 git tag v0.1.0
 ```
 
+`LAB_SANDBOX` là parent temp vừa được `mktemp` tạo; `LAB_REPO` là child duy nhất do lab tạo bên trong nó. Marker có nội dung cố định để cleanup từ chối mọi thư mục không thuộc đúng lần lab này.
+
 ### Cấu hình và chạy job lab
 
-Trong một Jenkins lab cô lập có plugin Pipeline và SCM retriever phù hợp, tạo global library tên `ci-lib` **không trusted**, tắt implicit loading và trỏ Git retriever tới đường dẫn local của repository. Không thêm credential. Tạo Pipeline job với Jenkinsfile sau; agent chỉ cần chạy `echo` và không có secret.
+Trong một Jenkins lab cô lập có plugin Pipeline và SCM retriever phù hợp, tạo global library tên `ci-lib` **không trusted**, tắt implicit loading và trỏ Git retriever tới đúng `$LAB_REPO` của shell trên. Không thêm credential. Tạo Pipeline job với Jenkinsfile sau; agent chỉ cần chạy `echo` và không có secret.
 
 ```groovy
 @Library('ci-lib@v0.1.0') _
@@ -285,13 +302,43 @@ Không biến lab thành lý do bật trusted hoặc approve signature. Nếu se
 
 Console Output dự kiến có `Shared Library local mock`, `requested-check=unit`, `requested-check=lint` và build `SUCCESS`. Lỗi allowlist, retriever hoặc sandbox phải làm build thất bại có log rõ, không được sửa bằng cách tắt sandbox.
 
-Sau khi ghi lại kết quả, xóa job/configuration library trong Jenkins lab, xóa workspace của job nếu policy lab cho phép, rồi xóa repository mock:
+Lệnh sau chỉ xóa filesystem sandbox vừa được `mktemp` tạo, tức repository mock và marker của lab. Chạy trong **cùng shell** với bước tạo. Nó kiểm tra biến không rỗng, parent `/tmp`, prefix, quan hệ parent-child, repository child, marker path và marker content; bất kỳ guard nào sai đều in lỗi rồi không chạy `rm -rf`. Lệnh đổi sang `/` trước khi xóa để không xóa working directory hiện tại.
 
 ```bash
-rm -rf /tmp/jenkins-shared-library-lab
+cleanup_lab() {
+  local expected_marker='jenkins-shared-library-lab-v1'
+
+  if [ -z "${LAB_PARENT:-}" ] || [ -z "${LAB_PREFIX:-}" ] || \
+     [ -z "${LAB_SANDBOX:-}" ] || [ -z "${LAB_REPO:-}" ] || \
+     [ -z "${LAB_MARKER:-}" ]; then
+    printf >&2 'Không dọn dẹp: thiếu biến sandbox.\n'
+    return 1
+  fi
+
+  case "$LAB_SANDBOX" in
+    "$LAB_PARENT"/"$LAB_PREFIX"*) ;;
+    *) printf >&2 'Không dọn dẹp: prefix sandbox không hợp lệ.\n'; return 1 ;;
+  esac
+
+  if [ "$LAB_PARENT" != '/tmp' ] || \
+     [ "$(dirname -- "$LAB_SANDBOX")" != "$LAB_PARENT" ] || \
+     [ "$LAB_REPO" != "$LAB_SANDBOX/ci-lib" ] || \
+     [ "$LAB_MARKER" != "$LAB_SANDBOX/.jenkins-shared-library-lab-marker" ] || \
+     [ ! -d "$LAB_PARENT" ] || [ ! -d "$LAB_SANDBOX" ] || \
+     [ ! -d "$LAB_REPO" ] || [ ! -f "$LAB_MARKER" ] || \
+     [ "$(cat -- "$LAB_MARKER")" != "$expected_marker" ]; then
+    printf >&2 'Không dọn dẹp: guard parent, child hoặc marker thất bại.\n'
+    return 1
+  fi
+
+  cd / || { printf >&2 'Không dọn dẹp: không thể rời sandbox.\n'; return 1; }
+  rm -rf -- "$LAB_SANDBOX"
+}
+
+cleanup_lab
 ```
 
-Xác nhận không còn global/folder library `ci-lib`, credential hay approval được tạo cho lab. Lệnh dọn dẹp chỉ dành cho thư mục `/tmp` vừa tạo, không áp dụng cho repository hay workspace không thuộc lab.
+Không dọn workspace, job, credential, Script Approval hay global/folder library bằng shell command. Nếu đã tạo các đối tượng Jenkins lab, chỉ gỡ thủ công trên **controller lab** sau khi xác nhận job vừa tạo và retriever trỏ đúng `$LAB_REPO`; không áp dụng thao tác đó cho workspace, job hoặc cấu hình ngoài lab. Cleanup không có target literal cố định và không đụng dữ liệu ngoài sandbox local vừa tạo.
 
 ## Khắc phục sự cố
 
