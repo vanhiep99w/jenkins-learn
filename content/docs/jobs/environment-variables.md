@@ -10,6 +10,7 @@ Biến môi trường giúp Jenkins truyền cấu hình và metadata vào proce
 - [Mô hình và hai namespace](#mô-hình-và-hai-namespace)
   - [Controller, agent và process shell](#controller-agent-và-process-shell)
   - [Biến built-in và biến custom](#biến-built-in-và-biến-custom)
+  - [Parameters: `params` và environment của build](#parameters-params-và-environment-của-build)
 - [Nguồn biến môi trường](#nguồn-biến-môi-trường)
   - [Bảng nguồn scope và lifecycle](#bảng-nguồn-scope-và-lifecycle)
   - [Thay đổi cấu hình, restart và build đang chạy](#thay-đổi-cấu-hình-restart-và-build-đang-chạy)
@@ -47,6 +48,14 @@ Ví dụ `JENKINS_URL` có thể do controller cung cấp cho build, còn `PATH`
 
 **Custom variables** là tên đội tự đặt, ví dụ `APP_COMPONENT=reports-api` hoặc `LOG_LEVEL=info`. Dùng tên mô tả trách nhiệm, tránh ghi đè các tên Jenkins/tool/OS phổ biến như `PATH`, `HOME`, `JAVA_HOME` nếu chưa hiểu hậu quả. Thiết lập custom variable ở scope hẹp nhất đáp ứng nhu cầu và ghi owner của những biến global.
 
+### Parameters: `params` và environment của build
+
+Jenkins export **build parameters tiêu chuẩn** thành environment variables khi build bắt đầu, nên step process thường có thể đọc `DEPLOY_TIER` bằng `$DEPLOY_TIER` (POSIX shell), `%DEPLOY_TIER%` (`cmd.exe`) hoặc `$env:DEPLOY_TIER` (PowerShell). Cùng giá trị đó cũng có qua `params.DEPLOY_TIER` trong Pipeline. Không cần tự export một parameter tiêu chuẩn chỉ để shell thấy nó.
+
+Hai API phục vụ hai mục đích khác nhau. `params.NAME` giữ giá trị parameter theo kiểu/ngữ nghĩa parameter cho Groovy/Pipeline, chẳng hạn `params.DRY_RUN` là boolean. `env.NAME` là biểu diễn **chuỗi** trong Pipeline environment; process chỉ nhận biểu diễn này. Ví dụ `params.DRY_RUN` nên được dùng trong condition Groovy, còn shell phải so sánh chuỗi `"true"`/`"false"` nếu thật sự cần đọc `$DRY_RUN`.
+
+Parameter là một **nguồn baseline** của environment build, không phải một tầng `env` tách biệt. Nếu tên parameter trùng với `environment`, `withEnv` hoặc biến do plugin inject, giá trị `env.NAME`/process thấy có thể bị overlay bởi scope gần step hơn. `params.NAME` vẫn là input đã chọn. Jenkins documentation bảo đảm parameter được export khi build bắt đầu và `environment` áp dụng cho các step theo scope, nhưng không quy định một precedence phổ quát cho mọi plugin hay parameter type tùy biến. Tránh collision bằng tên riêng; nếu không tránh được, kiểm chứng trên controller/version/plugin bằng lab ở dưới.
+
 <Callout type="warn" title="Built-in không phải dữ liệu tin cậy từ người dùng">
   Metadata build hữu ích để định danh lần chạy, nhưng branch, commit message, tên job hiển thị, parameter và nội dung repository vẫn có thể bị kiểm soát bởi người không đáng tin ở các mô hình job khác nhau. Không ghép chúng trực tiếp thành command, URL, path hay chính sách authorization.
 </Callout>
@@ -62,7 +71,7 @@ Không có một nguồn duy nhất cho environment. Bảng này mô tả nơi m
 | Controller/system | service environment, Java/system setting, **Global properties → Environment variables** | Controller process hoặc build mới nhận global property | Service/JVM setting có consumer riêng và thường cần restart controller. Global property không phải nơi chứa secret. |
 | Node/agent | image/host OS, node property, `PATH`, CA nội bộ | Agent hoặc process kế thừa trên agent đó | Controller không suy ra được tool/`PATH` của agent. Image/host đổi có thể chỉ thấy ở allocation/process mới. |
 | Folder/job | job property, Folder property hoặc plugin inject environment | Job/folder và build của item con theo plugin/cấu hình | Phạm vi, thứ tự và khả năng override phụ thuộc plugin; ghi rõ owner và không dựa vào UI field không được kiểm chứng. |
-| Parameters | `params.DEPLOY_TIER`, `params.DRY_RUN` | Build hiện tại trong namespace `params` | Parameter không tự là `env` và không tham gia precedence của `env.NAME`. Validate và map allowlist trước side effect. |
+| Parameters | `params.DEPLOY_TIER`, `params.DRY_RUN`; `$DEPLOY_TIER` trong shell | Input build và baseline environment được export lúc build bắt đầu | `params.NAME` là API Pipeline theo kiểu/ngữ nghĩa parameter; `env.NAME`/process nhận chuỗi. `environment`, `withEnv` hoặc plugin có thể overlay khi trùng tên; kiểm chứng collision trên instance. Validate và map allowlist trước side effect. |
 | Declarative `environment` | Pipeline-level `LOG_LEVEL`, stage-level `LOG_LEVEL` | Toàn Pipeline hoặc một stage | Scope gần process hơn che scope ngoài theo cấu trúc Pipeline. Dùng cho cấu hình không nhạy cảm. |
 | `withEnv` | `withEnv(['LOG_LEVEL=trace'])` | Closure/block ngắn | Override tạm cho step bên trong; hết block là trở lại giá trị trước đó. |
 | Tool installers | `tools { jdk 'temurin-21.0.6' }`, tool plugin thêm `PATH` | Agent/stage khi tool được resolve | Tool name là contract; installer có thể tải code trên agent. Pin version và kiểm tra source/provenance. |
@@ -93,7 +102,10 @@ Một build đang chạy không phải bảng điều khiển để thay đổi 
 Khi cùng tên `LOG_LEVEL` được đặt ở nhiều lớp, hãy đọc từ ngoài vào trong. Scope gần step process nhất sẽ che giá trị của scope ngoài trong thời gian nó hiệu lực.
 
 ```text
-Controller/global hoặc node/agent environment
+Controller/global, node/agent và parameter export lúc build bắt đầu
+                    │
+                    ▼
+Baseline environment: env.LOG_LEVEL / process LOG_LEVEL
                     │
                     ▼
 Pipeline environment { LOG_LEVEL = 'info' }
@@ -107,7 +119,7 @@ withEnv(['LOG_LEVEL=trace']) { sh / bat / powershell }
                     ▼
 Process nhận LOG_LEVEL=trace
 
-params.LOG_LEVEL ── namespace Pipeline riêng; chỉ có hiệu lực khi Jenkinsfile đọc nó.
+params.LOG_LEVEL ── API giữ input parameter; env/process là biểu diễn chuỗi có thể bị overlay.
 ```
 
 Sơ đồ là mô hình cho Declarative/Pipeline context thông dụng, không phải cam kết của mọi plugin inject environment. Đối với job/folder/plugin, xác minh bằng một build lab có tên marker mới thay vì ghi đè biến hệ thống quan trọng.
@@ -118,7 +130,7 @@ Sơ đồ là mô hình cho Declarative/Pipeline context thông dụng, không p
 2. Pipeline-level `environment` áp dụng trong Pipeline. Stage-level `environment` che cùng tên trong stage đó.
 3. `withEnv` che giá trị bên ngoài chỉ trong closure. Đây là lựa chọn rõ ràng cho override tạm.
 4. Không dùng `env.NAME = '...'` để cố sửa giá trị đã khai báo bằng Declarative `environment`; behavior này dễ gây hiểu nhầm và không phải cách override tường minh. Đặt một tên runtime mới đã validate, hoặc dùng `withEnv`.
-5. `params.NAME` và `env.NAME` là hai namespace khác nhau. Nếu cùng tên, Jenkinsfile phải chọn đọc `params.NAME` hay `env.NAME` một cách rõ ràng.
+5. Parameter tiêu chuẩn vừa có qua `params.NAME` vừa được export thành `env.NAME`/process environment khi build bắt đầu. `params.NAME` giữ input theo kiểu parameter, còn `env.NAME` là chuỗi và có thể bị `environment`, `withEnv` hoặc plugin overlay khi trùng tên. Đừng suy luận collision từ tên giống nhau: đặt tên riêng hoặc quan sát cả ba bề mặt trên controller của bạn.
 6. Credentials binding có thể đưa secret vào environment của scope binding, nhưng **không** là một tầng precedence để lạm dụng. Chỉ bind ngay cạnh công cụ cần capability đó.
 
 ### Bảng chẩn đoán precedence
@@ -127,7 +139,8 @@ Sơ đồ là mô hình cho Declarative/Pipeline context thông dụng, không p
 | --- | --- | --- | --- |
 | Pipeline `LOG_LEVEL=info`, stage `LOG_LEVEL=debug` | `debug` trong stage | Trở về `info` khi stage kết thúc | Giữ override stage ngắn và theo mục đích. |
 | Stage `debug`, `withEnv(['LOG_LEVEL=trace'])` | `trace` trong closure | Trở về `debug` | Dùng `withEnv`, không sửa global property. |
-| `params.LOG_LEVEL='trace'`, `env.LOG_LEVEL='info'` | Shell vẫn thấy `info` trừ khi code export/map rõ | Không có tự động merge | Validate parameter; map sang một tên/runtime value được kiểm soát. |
+| Parameter `LOG_LEVEL='trace'`, chưa có collision | `params.LOG_LEVEL` là input; `env.LOG_LEVEL` và shell thường nhận chuỗi `trace` từ parameter export | Hết build | Không cần tự export parameter tiêu chuẩn; vẫn không đưa input tự do vào command/path. |
+| Parameter `LOG_LEVEL` trùng Declarative `environment` hoặc plugin injection | `params.LOG_LEVEL` vẫn là input; `env.LOG_LEVEL`/shell phụ thuộc overlay và version/plugin | Theo scope overlay | Tránh trùng tên. Nếu bắt buộc, dùng marker vô hại và quan sát `params`, `env`, process trong lab; không coi đây là precedence phổ quát. |
 | Tool thêm đường dẫn vào `PATH` | `PATH` của stage/process có thể được tool sửa | Theo scope tool/step | Dùng tool definition đã pin version; không hard-code path theo máy. |
 | Một plugin/job property inject biến trùng tên | Phụ thuộc thứ tự/plugin đã cài | Phụ thuộc plugin | Đổi sang tên custom có namespace và kiểm chứng bằng lab. |
 
@@ -135,7 +148,7 @@ Sơ đồ là mô hình cho Declarative/Pipeline context thông dụng, không p
 
 ### Shell process khác Jenkins env
 
-Trong Groovy/Pipeline, đọc environment bằng `env.NAME`; đọc parameter bằng `params.NAME`. Trong Unix shell, process đọc biến bằng `$NAME` hoặc `${NAME}`. `env` không phải một map Java/Groovy chung để mọi process đang chạy cùng thấy thay đổi; một assignment Pipeline chỉ ảnh hưởng các step được tạo sau trong scope phù hợp.
+Trong Groovy/Pipeline, đọc environment bằng `env.NAME`; đọc parameter bằng `params.NAME`. Parameter tiêu chuẩn cũng được Jenkins export thành environment lúc build bắt đầu, nên Unix shell có thể đọc `$NAME` hoặc `${NAME}` mà không cần export lại. `env` không phải một map Java/Groovy chung để mọi process đang chạy cùng thấy thay đổi; một assignment Pipeline chỉ ảnh hưởng các step được tạo sau trong scope phù hợp. Khi tên trùng nhau, `params.NAME` diễn tả input parameter còn `env.NAME` là chuỗi effective environment ở scope hiện tại.
 
 ```groovy
 script {
@@ -207,6 +220,16 @@ pipeline {
       defaultValue: true,
       description: 'Chỉ điều khiển output sandbox.'
     )
+    choice(
+      name: 'LAB_PARAM_MARKER',
+      choices: ['parameter-baseline'],
+      description: 'Marker vô hại để quan sát params, env và process environment.'
+    )
+    choice(
+      name: 'LAB_COLLISION_MARKER',
+      choices: ['parameter-baseline'],
+      description: 'Marker vô hại để quan sát collision với stage environment.'
+    )
   }
 
   environment {
@@ -225,12 +248,36 @@ pipeline {
             error('DEPLOY_TIER is not allowlisted')
           }
           env.RUN_MODE = params.DRY_RUN ? "${selected}-dry-run" : "${selected}-check"
+          if (params.LAB_PARAM_MARKER != 'parameter-baseline') {
+            error('LAB_PARAM_MARKER is not allowlisted')
+          }
+          echo "params.LAB_PARAM_MARKER=${params.LAB_PARAM_MARKER}"
+          echo "env.LAB_PARAM_MARKER=${env.LAB_PARAM_MARKER}"
         }
         sh '''
           set -eu
           test -n "$RUN_MODE"
+          test "$LAB_PARAM_MARKER" = 'parameter-baseline'
+          printf 'process.LAB_PARAM_MARKER=%s\\n' "$LAB_PARAM_MARKER"
           printf 'component=%s mode=%s level=%s build=%s\\n' \\
             "$APP_COMPONENT" "$RUN_MODE" "$LOG_LEVEL" "$BUILD_NUMBER"
+        '''
+      }
+    }
+
+    stage('Observe parameter collision') {
+      agent { label 'sandbox-linux' }
+      environment {
+        LAB_COLLISION_MARKER = 'declarative-overlay'
+      }
+      steps {
+        script {
+          echo "params.LAB_COLLISION_MARKER=${params.LAB_COLLISION_MARKER}"
+          echo "env.LAB_COLLISION_MARKER=${env.LAB_COLLISION_MARKER}"
+        }
+        sh '''
+          set -eu
+          printf 'process.LAB_COLLISION_MARKER=%s\\n' "$LAB_COLLISION_MARKER"
         '''
       }
     }
@@ -265,7 +312,7 @@ pipeline {
 }
 ```
 
-`RUN_MODE` được tạo từ allowlist, boolean và chuỗi cố định. `DEPLOY_TIER` không được nội suy vào shell. `LOG_LEVEL` là ví dụ override vô hại: stage che Pipeline và `withEnv` che stage; test sau closure chứng minh giá trị stage trở lại.
+`RUN_MODE` được tạo từ allowlist, boolean và chuỗi cố định. `DEPLOY_TIER` không được nội suy vào shell. `LAB_PARAM_MARKER` chứng minh cùng parameter tiêu chuẩn xuất hiện qua `params`, `env` và process environment. `LAB_COLLISION_MARKER` chỉ quan sát collision: `params` phải còn input đã chọn, còn `env`/process phản ánh overlay effective của stage trên Jenkins đang chạy. `LOG_LEVEL` là ví dụ override vô hại: stage che Pipeline và `withEnv` che stage; test sau closure chứng minh giá trị stage trở lại.
 
 Để chọn cấu trúc Pipeline, xem [Declarative Pipeline](/docs/pipelines/declarative) hoặc [Scripted Pipeline](/docs/pipelines/scripted). Parameter, `environment` và `withEnv` được giải thích bổ sung tại [Environment & Parameters](/docs/pipelines/environment-parameters).
 
@@ -309,15 +356,18 @@ Lab không cần repository, credential, artifact, network hay secret. Cần con
 
 1. Tạo một Pipeline job tạm tên `environment-scope-lab` và dán Jenkinsfile ở phần [Jenkinsfile mẫu an toàn](#jenkinsfile-mẫu-an-toàn).
 2. Mở **Pipeline Syntax** hoặc Declarative Directive Generator trên controller để xác nhận plugin/cú pháp. Thay `sandbox-linux` chỉ bằng label của pool lab tách biệt.
-3. Chạy lần đầu với `DEPLOY_TIER=sandbox` và `DRY_RUN=true`. Đọc Console Output; không thêm `env`, `printenv` hay secret để debug.
-4. Chạy lần hai với `DEPLOY_TIER=staging` và `DRY_RUN=false`. So sánh `mode` với build đầu, rồi quan sát hai dòng `inside-withEnv` và `after-withEnv`.
-5. Xóa job lab khi không còn cần. Vì mẫu không checkout/tạo artifact/credential, cleanup chỉ cần xóa job sandbox theo policy của đội; không xóa history hay workspace của job khác.
+3. Chạy lần đầu với `DEPLOY_TIER=sandbox`, `DRY_RUN=true` và giữ hai marker ở default. Đọc riêng ba dòng `params.LAB_PARAM_MARKER`, `env.LAB_PARAM_MARKER`, `process.LAB_PARAM_MARKER`; không thêm `env`, `printenv` hay secret để debug.
+4. Ghi ba dòng `LAB_COLLISION_MARKER` trong stage collision. `params` phải biểu diễn input `parameter-baseline`; đối chiếu `env` và process với `declarative-overlay` để ghi nhận overlay trên Jenkins/version plugin của bạn. Không dùng quan sát này để suy ra precedence cho plugin hay parameter type khác.
+5. Chạy lần hai với `DEPLOY_TIER=staging` và `DRY_RUN=false`. So sánh `mode` với build đầu, rồi quan sát hai dòng `inside-withEnv` và `after-withEnv`.
+6. Xóa job lab khi không còn cần. Vì mẫu không checkout/tạo artifact/credential, cleanup chỉ cần xóa job sandbox theo policy của đội; không xóa history hay workspace của job khác.
 
 ### Kết quả mong đợi và cleanup
 
 | Thao tác | Kết quả mong đợi | Điều được chứng minh |
 | --- | --- | --- |
-| Build `sandbox`, dry run | `mode=sandbox-dry-run`; `level=info` tại stage đầu | Parameter được map trong Jenkinsfile, không tự ghi đè `env`. |
+| Build `sandbox`, dry run | `mode=sandbox-dry-run`; `level=info` tại stage đầu | Parameter được map trong Jenkinsfile sau validation; không đi vào command tự do. |
+| `LAB_PARAM_MARKER` không trùng tên | Ba dòng `params`, `env`, `process` cùng là `parameter-baseline` | Parameter tiêu chuẩn có API `params` và được export thành environment cho step process. |
+| `LAB_COLLISION_MARKER` trùng stage `environment` | `params` là `parameter-baseline`; ghi nhận `env` và process effective trên instance | Collision có thể có overlay; không khẳng định precedence phổ quát cho plugin/type tùy biến. |
 | Build `staging`, không dry run | `mode=preview-check`; không deploy/network | Boolean được xử lý như boolean, choice đi qua allowlist. |
 | Trong `withEnv` | `inside-withEnv=trace` | Closure gần process che stage-level value. |
 | Sau `withEnv` | `after-withEnv=debug`; build `SUCCESS` | Override kết thúc khi closure kết thúc; stage value được khôi phục. |
@@ -336,7 +386,7 @@ Lab không cần repository, credential, artifact, network hay secret. Cần con
 | `withEnv` không thấy sau closure | Đây là behavior đúng: closure đã kết thúc | Đặt override ở block bao đúng step cần nó, không mở rộng thành global. |
 | `env.NAME =` không đổi giá trị Declarative | Value được khai báo ở `environment` hoặc bị scope gần hơn che | Dùng `withEnv` cho override tạm, hoặc tạo biến runtime tên mới sau validation. |
 | Build nhận tool/version sai | Agent/image khác, tool name không khớp hoặc `PATH` bị sửa thủ công | Kiểm tra label, `--version`, tool definition và installer log trên đúng agent. |
-| Parameter cùng tên không đổi shell | `params.NAME` không tự export thành `env.NAME` | Map/validate rõ trong Jenkinsfile; không dựa vào behavior plugin. |
+| Parameter tiêu chuẩn không thấy trong shell | Sai tên/case, build không dùng parameter chuẩn, hoặc overlay/plugin đã đổi cùng tên | Kiểm tra `params.NAME`, `env.NAME` và một process marker trong build mới; không tự export mù quáng hoặc dump toàn environment. |
 | Secret hiện `****` nhưng vẫn có rủi ro | Masking che console có giới hạn, không chặn exfiltration/file/process | Thu hẹp binding, dừng debug dump, đánh giá artifact/log và rotate khi nghi ngờ lộ. |
 | Build chờ hoặc chạy trên agent sai | Label/executor/policy không khớp | Đọc Build Queue và node labels trước khi đổi `agent` hay controller executor. |
 
@@ -344,7 +394,8 @@ Lab không cần repository, credential, artifact, network hay secret. Cần con
 
 - [ ] Tôi biết biến này đến từ controller/system, agent, job/folder, parameter, Jenkinsfile, tool hay credential binding.
 - [ ] Mỗi custom environment có owner, mục đích và scope hẹp nhất; global property chỉ chứa cấu hình không nhạy cảm.
-- [ ] Tôi phân biệt `params.NAME`, `env.NAME` và biến process shell; không giả định parameter tự override environment.
+- [ ] Tôi phân biệt `params.NAME` (input theo kiểu parameter), `env.NAME` (chuỗi effective) và biến process shell; biết parameter tiêu chuẩn được export lúc build bắt đầu.
+- [ ] Tôi tránh collision giữa parameter, Pipeline/stage `environment`, `withEnv` và plugin injection; khi cần, tôi kiểm chứng `params`/`env`/process trên instance thay vì giả định precedence phổ quát.
 - [ ] Pipeline-level, stage-level và `withEnv` không dùng chung tên vô tình; override tạm nằm trong closure ngắn.
 - [ ] Tôi không dùng `env.NAME =` để sửa hằng Declarative và không dùng precedence để vượt policy/authorization.
 - [ ] Built-in variable chỉ được dùng khi context thực sự có; controller/agent và workspace được xác minh trên build mới.
@@ -358,6 +409,7 @@ Lab không cần repository, credential, artifact, network hay secret. Cần con
 ## Nguồn Jenkins chính thức
 
 - [Using a Jenkinsfile](https://www.jenkins.io/doc/book/pipeline/jenkinsfile/) — `environment`, built-in variables, parameters và credential helper.
+- [Pipeline Syntax — parameters](https://www.jenkins.io/doc/book/pipeline/syntax/#parameters) — parameter được expose qua `params` và export thành environment variables khi build bắt đầu.
 - [Pipeline Syntax](https://www.jenkins.io/doc/book/pipeline/syntax/) — Declarative `environment`, `tools`, `parameters`, agent và step.
 - [Pipeline: Basic Steps](https://www.jenkins.io/doc/pipeline/steps/workflow-basic-steps/) — tham chiếu `withEnv` và các Pipeline step cơ bản.
 - [Pipeline Global Variable Reference](https://www.jenkins.io/doc/book/pipeline/getting-started/#global-variable-reference) — global variables/steps khả dụng trên Jenkins instance.
