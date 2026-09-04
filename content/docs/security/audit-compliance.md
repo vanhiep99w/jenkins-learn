@@ -309,8 +309,8 @@ esac
 
 : > "$LAB_ROOT/.lab-owned"
 cat > "$LAB_ROOT/audit-events.redacted.jsonl" <<'EOF'
-{"event_id":"evt-lab-001","timestamp":"2025-03-08T10:14:03Z","event_type":"login.success","actor":"user:training-admin","source":"jenkins-lab","request_id":"lab-request-01","redaction":"no-secret-fields"}
-{"event_id":"evt-lab-002","timestamp":"2025-03-08T10:15:10Z","event_type":"job.configuration.changed","actor":"user:training-admin","source":"jenkins-lab","resource":"job:evidence-demo","change_ref":"git:8f3c2a1","redaction":"no-secret-fields"}
+{"event_id":"evt-lab-001","timestamp":"2025-03-08T10:14:03Z","event_type":"login.success","actor":"user:training-admin","source":"jenkins-lab","request_id":"lab-request-01","redaction":"reviewed"}
+{"event_id":"evt-lab-002","timestamp":"2025-03-08T10:15:10Z","event_type":"job.configuration.changed","actor":"user:training-admin","source":"jenkins-lab","resource":"job:evidence-demo","change_ref":"git:8f3c2a1","redaction":"reviewed"}
 EOF
 
 sha256sum "$LAB_ROOT/audit-events.redacted.jsonl" > "$LAB_ROOT/audit-events.redacted.jsonl.sha256"
