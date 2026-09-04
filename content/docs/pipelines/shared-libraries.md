@@ -381,7 +381,7 @@ Trên Jenkins lab có Pipeline, Git/SCM retriever phù hợp và một agent `li
 
 Tạo Pipeline job lab, đặt script là nội dung `Jenkinsfile.lab`, rồi chạy build. Kết quả runtime mong đợi: Console Output có `Shared Library local mock`, `requested-check=unit`, `requested-check=lint` và build `SUCCESS`. Nếu retriever không hỗ trợ đường dẫn repository local hoặc sandbox yêu cầu approval, dừng ở đó và ghi nhận giới hạn plugin/policy; không tắt sandbox, không approve signature và không đổi agent thành controller.
 
-Phân biệt evidence: kiểm tra tĩnh ở bước trước xác nhận repository mock; unit test (nếu đội có framework Groovy/Pipeline Unit) chỉ xác nhận class/façade theo mock; Jenkins lab mới kiểm tra được lookup library, classpath, `libraryResource`, CPS và sandbox của controller đang dùng. Trang kiểm thử Jenkinsfile trong bộ tài liệu này chưa hoàn thiện, nên bài này không coi đó là hướng dẫn kiểm thử có thể dùng ngay.
+Phân biệt evidence: kiểm tra tĩnh ở bước trước xác nhận repository mock; unit test (nếu đội có framework Groovy/Pipeline Unit) chỉ xác nhận class/façade theo mock; Jenkins lab mới kiểm tra được lookup library, classpath, `libraryResource`, CPS và sandbox của controller đang dùng. [Kiểm thử Jenkinsfile](/docs/pipelines/testing) trình bày các lớp lint, unit, contract và runtime test; dùng các lớp đó để bổ sung evidence, không thay thế integration trên controller lab của library này.
 
 ### Dọn sandbox có guard
 
