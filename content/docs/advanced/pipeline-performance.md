@@ -339,6 +339,11 @@ pipeline {
         '''
         stash name: 'build-summary', includes: 'build-summary.txt', useDefaultExcludes: true
       }
+      post {
+        cleanup {
+          deleteDir()
+        }
+      }
     }
 
     stage('Independent checks') {
@@ -352,6 +357,11 @@ pipeline {
             unstash 'build-summary'
             sh 'grep -q "^build=" build-summary.txt && echo "unit mock: PASS"'
           }
+          post {
+            cleanup {
+              deleteDir()
+            }
+          }
         }
 
         stage('Lint mock') {
@@ -361,6 +371,11 @@ pipeline {
             deleteDir()
             unstash 'build-summary'
             sh 'test -s build-summary.txt && echo "lint mock: PASS"'
+          }
+          post {
+            cleanup {
+              deleteDir()
+            }
           }
         }
       }
@@ -373,6 +388,11 @@ pipeline {
         unstash 'build-summary'
         archiveArtifacts artifacts: 'build-summary.txt', fingerprint: false
       }
+      post {
+        cleanup {
+          deleteDir()
+        }
+      }
     }
   }
 
@@ -380,14 +400,11 @@ pipeline {
     always {
       echo "Build result: ${currentBuild.currentResult}"
     }
-    cleanup {
-      deleteDir()
-    }
   }
 }
 ```
 
-Mỗi branch có thể nhận agent/workspace khác, nên ví dụ dọn workspace Jenkins đã cấp rồi mới `unstash`; không tìm `build-summary.txt` trước bước chuyển dữ liệu. `disableConcurrentBuilds()` không thay thế lock cho database/license dùng chung giữa nhiều job. Nếu cần lock, bọc chính xác step chạm resource như phần trên và xác minh plugin/version.
+Mỗi branch có thể nhận agent/workspace khác, nên ví dụ dọn workspace Jenkins đã cấp rồi mới `unstash`; không tìm `build-summary.txt` trước bước chuyển dữ liệu. Mỗi stage có `agent` cũng có `post { cleanup { deleteDir() } }`, nên cleanup chạy trong workspace của chính stage thay vì `post` cấp Pipeline — nơi không có `FilePath` khi top-level là `agent none`. `disableConcurrentBuilds()` không thay thế lock cho database/license dùng chung giữa nhiều job. Nếu cần lock, bọc chính xác step chạm resource như phần trên và xác minh plugin/version.
 
 ## Lab sandbox: queue và fan-out mock
 
@@ -414,12 +431,22 @@ pipeline {
           steps {
             sh 'echo "holding executor"; sleep 45; echo "hold: PASS"'
           }
+          post {
+            cleanup {
+              deleteDir()
+            }
+          }
         }
         stage('Small independent check') {
           agent { label 'linux && perf-lab' }
           options { timeout(time: 90, unit: 'SECONDS') }
           steps {
             sh 'echo "small check: PASS"'
+          }
+          post {
+            cleanup {
+              deleteDir()
+            }
           }
         }
       }
@@ -430,9 +457,6 @@ pipeline {
     always {
       echo "Lab result: ${currentBuild.currentResult}"
     }
-    cleanup {
-      deleteDir()
-    }
   }
 }
 ```
@@ -441,7 +465,7 @@ pipeline {
 
 Với đúng một executor, `Hold executor` giữ slot khoảng 45 giây. `Small independent check` và/hoặc build `#2` phải chờ queue; thứ tự chính xác phụ thuộc scheduler nhưng không có hai allocation cùng chạy trên một slot. CPU và disk hầu như giữ baseline vì `sleep` không mô phỏng workload nặng. Đây chứng minh queue có thể là capacity, **không** chứng minh nên tăng executors cho workload thật.
 
-Sau khi thêm slot hợp lệ trên sandbox, hai allocation có thể chồng thời gian và throughput cải thiện. Chỉ giữ thay đổi nếu runtime, error rate, CPU/RAM/I/O/network và queue p95 đều đạt tiêu chí đặt trước. Cleanup: đợi lab kết thúc hoặc abort **chỉ build lab**, xóa job `pipeline-performance-lab`, trả executor/label về giá trị đã ghi, kiểm tra queue không còn item lab và không export Console Output/metrics nội bộ.
+Sau khi thêm slot hợp lệ trên sandbox, hai allocation có thể chồng thời gian và throughput cải thiện. Mỗi branch dọn đúng workspace do stage agent của nó cấp trong `post { cleanup }`, kể cả khi nhánh sibling bị `failFast` hủy; không có cleanup cấp Pipeline vì Pipeline dùng `agent none`. Chỉ giữ thay đổi nếu runtime, error rate, CPU/RAM/I/O/network và queue p95 đều đạt tiêu chí đặt trước. Cleanup vận hành: đợi lab kết thúc hoặc abort **chỉ build lab**, xóa job `pipeline-performance-lab`, trả executor/label về giá trị đã ghi, kiểm tra queue không còn item lab và không export Console Output/metrics nội bộ.
 
 <Callout type="idea" title="Mở rộng lab theo một biến">
   Sau `sleep`, thay một branch bằng test nhỏ trên repository mock đã được phép hoặc upload artifact giả. Mỗi lần chỉ đổi concurrency, cache warm/cold hoặc kích thước artifact. Giữ timeout, retention và cleanup để lab không chiếm pool hoặc để lại dữ liệu vô hạn.
