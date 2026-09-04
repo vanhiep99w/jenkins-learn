@@ -100,7 +100,25 @@ Trước khi tích hợp, kiểm tra controller lab có Jenkins core được h�
 | UI/Pipeline Syntax | Tác giả cần tra snippet hoặc directive nhanh | Cần quyền UI thích hợp; output phản ánh plugin controller hiện tại, không phải policy production mặc định |
 | Jenkins CLI qua SSH | CI/laptop đã được cấp SSH CLI an toàn | SSH CLI phải bật; account có quyền tối thiểu; Jenkins chính thức khuyến nghị giao diện SSH cho linter CLI |
 | `jenkins-cli.jar` | Chính sách tổ chức dùng transport CLI khác | Tải JAR từ controller tin cậy, xác minh TLS/auth; không commit file `username:apiToken` |
-| `POST /declarative-linter/validate` | Một integration nội bộ cần gọi HTTP | Endpoint, auth, crumb và permission tùy controller/proxy/version; chỉ gửi Jenkinsfile không chứa secret |
+| `POST /pipeline-model-converter/validate` | Một integration nội bộ cần gọi HTTP | Endpoint của plugin Pipeline Model Definition; gửi multipart form field `jenkinsfile`; auth, crumb và permission phải được xác minh trên controller/proxy/version đang dùng |
+
+Endpoint HTTP của plugin Pipeline Model Definition nhận **form field** tên chính xác `jenkinsfile`, không phải JSON body và không phải endpoint CLI. Mẫu sau là **non-executable** cho tới khi controller sandbox đã xác minh plugin, URL context path, TLS, auth và CSRF behavior. `JENKINS_AUTH_FILE` là file `netrc` do secret manager provision ngoài repository, mode `0600`; token/password không nằm trong URL, argv hay log. Nó chỉ gửi fixture không có secret:
+
+```bash
+# Prerequisite: JENKINS_URL là HTTPS URL của controller sandbox;
+# JENKINS_AUTH_FILE là netrc file mode 0600 do secret manager provision.
+set -eu
+: "${JENKINS_URL:?Đặt HTTPS URL controller sandbox}"
+: "${JENKINS_AUTH_FILE:?Đặt path netrc ngoài repository}"
+: "${JENKINSFILE_PATH:?Đặt path tới Jenkinsfile không chứa secret}"
+test -r "$JENKINS_AUTH_FILE"
+test -r "$JENKINSFILE_PATH"
+
+curl --fail-with-body --silent --show-error \
+  --netrc-file "$JENKINS_AUTH_FILE" \
+  --form "jenkinsfile=<${JENKINSFILE_PATH}" \
+  "$JENKINS_URL/pipeline-model-converter/validate"
+```
 
 Mẫu sau là **non-executable** nếu chưa có controller lab, SSH CLI được bật, port SSH, hostname và account được cấp theo policy. Nó chỉ gửi nội dung Jenkinsfile qua stdin; không có credential trong lệnh.
 
@@ -117,12 +135,12 @@ Kết quả thành công thường chứa `Jenkinsfile successfully validated.`;
 
 ### Xác thực crumb và gate pull request
 
-HTTP linter là request `POST`, vì vậy client dùng browser session/password có thể cần CSRF **crumb** lấy từ cùng controller/session. Client dùng API token thường được Jenkins core hiện đại miễn crumb, nhưng reverse proxy, security realm, plugin hoặc version có thể thay đổi hành vi. Xác minh trên sandbox; đừng tắt CSRF khi gặp `403`.
+HTTP linter là request `POST` tới `/pipeline-model-converter/validate`, với multipart form field `jenkinsfile`. Client dùng browser session/password có thể cần CSRF **crumb** lấy từ cùng controller/session. Jenkins core hiện đại thường miễn crumb cho request xác thực bằng API token, nhưng đây không phải cam kết phổ quát cho plugin endpoint, reverse proxy, security realm hay version khác. Xác minh request thật trên sandbox; đừng tắt CSRF khi gặp `403`.
 
 - Dùng service identity riêng, quyền tối thiểu và credential được quản trị ngoài Git. API token xác thực identity; permission mới quyết định endpoint được gọi.
 - Không đặt token/password trong URL, argv, Jenkinsfile, log, artifact hay report. Không in response body có thể phản chiếu nội dung Pipeline.
-- Với session flow, lấy `crumbRequestField` và `crumb` từ crumb issuer, giữ cookie jar quyền hẹp, rồi gửi đúng field đó trong POST. Không hard-code tên header và không log crumb/cookie.
-- Với token flow, chỉ bỏ crumb khi chính controller sandbox xác nhận cho phép. `401`/`403` cần được phân biệt giữa identity permission, session/crumb, URL canonical và proxy.
+- Với session/password flow, lấy `crumbRequestField` và `crumb` từ crumb issuer bằng cùng URL/cookie session; gửi lại field runtime đó cho POST bằng client có thể giữ cookie/header ngoài log. Không hard-code tên header, không ghi crumb/cookie vào command history hay process arguments.
+- Với API-token flow, chỉ bỏ crumb khi chính controller sandbox xác nhận endpoint này chấp nhận request đó. `401`/`403` cần được phân biệt giữa identity permission, session/crumb, URL canonical, context path và proxy.
 
 Gate PR tối thiểu: checkout Jenkinsfile ở revision PR → linter Declarative nếu file dùng `pipeline {}` → fail check khi parser/model báo lỗi → unit/contract lanes. Linter pass không được là điều kiện duy nhất để merge hoặc cấp credential cho build PR.
 
