@@ -222,10 +222,12 @@ Sandbox giới hạn các method, constructor và field mà Pipeline Groovy khô
 | Nguồn code | Mặc định an toàn nên áp dụng | Quyết định vận hành |
 | --- | --- | --- |
 | Jenkinsfile trong repository/PR | Chạy sandbox; coi branch và thay đổi SCM là untrusted cho đến khi review. | Yêu cầu review, branch protection và quyền Job/Configure/Build tối thiểu. |
-| Global Shared Library được đánh dấu trusted | Có thể gọi API rộng hơn và có thể vượt sandbox. | Chỉ quản trị viên duy trì; version pin, review như privileged code và giới hạn người được sửa library. |
-| Shared code untrusted hoặc `vars/` dùng bởi repo | Vẫn chịu sandbox khi gọi từ Pipeline sandbox. | Thiết kế API nhỏ, dữ liệu đơn giản; không hứa quyền cao hơn Jenkinsfile. |
+| **Trusted Global Shared Library** | Mọi Groovy code của library, gồm global variable trong `vars/` và class trong `src/`, là privileged và chạy ngoài sandbox khi library được cấu hình trusted. | Chỉ quản trị viên duy trì; pin version, review như privileged code và giới hạn người được sửa library. |
+| Global Shared Library untrusted hoặc Folder-level Shared Library | Code của library, **kể cả `vars/`**, chạy trong sandbox của caller và có thể gặp Script Approval. Folder-level library luôn là untrusted. | Thiết kế API nhỏ, dữ liệu đơn giản; không hứa quyền cao hơn Jenkinsfile và không dùng approval để mở rộng quyền. |
 
-Trusted shared library không phải chỗ để bọc một `eval`, một shell từ input hay một API Jenkins tùy ý. Quyền của library là quyền của controller trong ngữ cảnh đó; sai sót có thể thành đường leo thang đặc quyền. Tách policy privileged nhỏ, review độc lập và giữ Jenkinsfile/repository code ở sandbox khi có thể.
+`vars/` chỉ là convention/load mechanism để xuất global variable của Shared Library; nó **không** là security boundary. Cùng một `vars/release.groovy` có thể là privileged ngoài sandbox khi thuộc Trusted Global Shared Library, hoặc bị sandbox/caller approvals chi phối khi thuộc library untrusted/folder. Vì vậy, xác định **nguồn library, phạm vi cấu hình và cờ trusted** trước khi review lời gọi, thay vì kết luận từ thư mục `vars/`.
+
+Trusted shared library không phải chỗ để bọc một `eval`, một shell từ input hay một API Jenkins tùy ý. Script Approval không bảo vệ code trong trusted library đã chạy ngoài sandbox; thay vào đó, ACL, quyền sửa cấu hình Global Library, pin version và code review là rào chắn chính. Với library untrusted, approval vẫn chỉ là allowlist signature ở controller, không phải cách cấp quyền mù cho caller. Quyền của library là quyền của controller trong ngữ cảnh đó; sai sót có thể thành đường leo thang đặc quyền. Tách policy privileged nhỏ, review độc lập và giữ Jenkinsfile/repository code ở sandbox khi có thể.
 
 Với authorization strategy có ACL (Access Control List), đánh giá signature theo **quyền thực tế của caller và tác động dữ liệu**, không chỉ theo việc build đang thất bại. Một method có kiểm tra quyền có thể an toàn với người dùng này nhưng nguy hiểm nếu được duyệt theo cách bỏ qua ACL. Không phê duyệt hàng loạt, không cấp `Overall/Administer` hoặc quyền Script Approval chỉ để dập cảnh báo. Ghi nhận owner, lý do, phạm vi và cách rollback cho mỗi thay đổi; đối chiếu cấu hình quyền tại [Cấu hình hệ thống Jenkins](/docs/administration/system-configuration).
 
@@ -309,7 +311,7 @@ pipeline {
 - [ ] Mọi state đi qua Pipeline step là kiểu đơn giản, serializable; không dùng `@NonCPS` để né CPS hay giảm durability.
 - [ ] Hàm `@NonCPS` chỉ biến đổi dữ liệu đồng bộ, không gọi Pipeline step và không trả object ngoại lai.
 - [ ] Input từ parameters, SCM, webhook và environment không trở thành Groovy, class name hay shell command; hành động nhạy cảm dùng allowlist.
-- [ ] Jenkinsfile/repository code chạy sandbox; trusted library có owner, version, review và phạm vi privileged tối thiểu.
+- [ ] Trust được quyết định bởi cấu hình library, không phải thư mục `vars/`: trusted global library (kể cả `vars/`) là privileged; untrusted/folder library chịu sandbox. Mỗi trusted library có owner, version, review và phạm vi privileged tối thiểu.
 - [ ] Không có signature Script Approval nào được phê duyệt mù; đánh giá ACL và đường quyền trước khi thay đổi controller.
 - [ ] Plugin/dependency đã tương thích và được review; không dùng `@Grab`, dynamic JAR hoặc dynamic class loading.
 - [ ] Error handling giữ tín hiệu thất bại, log không chứa secret, và cleanup chỉ đụng workspace của build.
