@@ -219,30 +219,34 @@ Dùng external storage khi artifact lớn/nhiều, nhiều agent ephemeral, rete
 
 ### Upload download, retry và idempotency
 
-Địa chỉ bên dưới là placeholder `.invalid`, credential ID là tên minh họa. Nó cho thấy nguyên tắc: credential chỉ tồn tại trong block upload, shell tắt trace trước khi dùng token, URL/path được cố định và upload dùng `PUT` vào khóa version bất biến. Chỉ chạy mẫu sau khi thay bằng endpoint sandbox đã được phê duyệt.
+Ví dụ này giả định **HTTP Request Plugin** phiên bản đã được phê duyệt và tương thích Jenkins LTS hiện hành, cùng artifact repository sandbox chấp nhận HTTPS Basic authentication cho service account. Credential `artifact-repository-uploader` là Jenkins **Username with password** credential có quyền ghi đúng namespace; xác nhận step `httpRequest`, kiểu credential và các tham số khả dụng trong **Pipeline Syntax → Snippet Generator** của controller trước khi dùng. Địa chỉ `.invalid` chỉ là placeholder cố định.
 
 ```groovy
 stage('Publish to approved repository') {
   steps {
-    withCredentials([string(credentialsId: 'artifact-upload-token', variable: 'REPOSITORY_TOKEN')]) {
-      sh '''#!/bin/sh
-        set -eu
-        set +x
-        curl --fail --silent --show-error \
-          --connect-timeout 10 \
-          --retry 3 --retry-delay 2 \
-          --header "Authorization: Bearer $REPOSITORY_TOKEN" \
-          --upload-file dist/release/app-1.2.3.tar.gz \
-          https://repository.example.invalid/releases/app/1.2.3/app-1.2.3.tar.gz
-      '''
+    script {
+      def response = httpRequest(
+        authentication: 'artifact-repository-uploader',
+        consoleLogResponseBody: false,
+        contentType: 'APPLICATION_OCTETSTREAM',
+        httpMode: 'PUT',
+        ignoreSslErrors: false,
+        timeout: 30,
+        uploadFile: 'dist/release/app-1.2.3.tar.gz',
+        url: 'https://repository.example.invalid/releases/app/1.2.3/app-1.2.3.tar.gz',
+        validResponseCodes: '200:201,204'
+      )
+      echo "Published immutable release path; HTTP status ${response.status}"
     }
   }
 }
 ```
 
-Retry chỉ phù hợp cho lỗi tạm thời như kết nối reset hoặc `5xx` khi API đích hỗ trợ. Upload `POST` có thể tạo nhiều version nếu response bị mất; dùng `PUT` vào object key/version xác định, checksum deploy hoặc idempotency key nếu repository hỗ trợ. Sau retry, gọi API `HEAD`/metadata đã xác thực để kiểm size và SHA-256, không chỉ tin HTTP thành công. Nếu server từ chối overwrite, coi đó là tín hiệu đúng của immutability và điều tra version thay vì xóa/ghi đè artifact production.
+`authentication` chỉ là **credential ID**. HTTP Request Plugin lấy username/password từ Jenkins credential store trong JVM để tạo request; Jenkinsfile không nạp secret vào biến Groovy hay shell, không tạo process `curl`, và không đưa secret vào argv, URL, log, artifact hoặc workspace. Scope chỉ là step upload; sau step plugin không để lại file credential cần cleanup. `consoleLogResponseBody: false` giảm nguy cơ response chứa dữ liệu nhạy cảm bị in ra, nhưng không thay thế quyền tối thiểu hay review log/audit.
 
-Download cũng cần TLS, token read-only scope hẹp và xác minh SHA-256 trước dùng. Không truyền token qua URL query, không ghi header vào log, và không đặt credential trong archive hay workspace lâu hơn cần thiết. Xem [Credentials trong Pipeline](/docs/pipelines/credentials) và [Xử lý lỗi và Retry](/docs/pipelines/error-handling) để thiết kế scope và failure behavior.
+Mẫu cố ý chỉ nhận mã thành công của lần publish mới. Với retry, chỉ bọc request bằng `retry` sau khi repository đã xác nhận semantics cho `PUT` vào key version bất biến. Nếu timeout khiến client không biết server đã nhận bytes, trước lần gửi lại hãy dùng chính client/step credential-aware để gọi `HEAD` hoặc API metadata của repository, đối chiếu size và SHA-256 với `SHA256SUMS`. Chỉ coi `409`/"already exists" là idempotent khi metadata xác nhận cùng nội dung; nếu khác, dừng và điều tra. Không dùng `POST` tạo version mới, không xóa hay ghi đè artifact production để thử lại.
+
+Download cũng dùng client/plugin credential-aware hoặc credential được repository hỗ trợ, với TLS và quyền read-only scope hẹp. Không truyền token, password hay private key qua argv, custom header được shell mở rộng, URL query hoặc log; không đặt chúng trong artifact hay workspace. Audit cần ghi actor, credential ID, repository path, version, checksum, HTTP status và thời điểm — không ghi giá trị xác thực. Xem [Credentials trong Pipeline](/docs/pipelines/credentials) và [Xử lý lỗi và Retry](/docs/pipelines/error-handling) để thiết kế scope và failure behavior.
 
 ### Chi phí, quota và khôi phục
 
@@ -336,6 +340,7 @@ Sau build, log `deleteDir` cho biết workspace lab đã được dọn. Xác nh
 - [Jenkins User Handbook: Managing build records](https://www.jenkins.io/doc/book/managing/builds/)
 - [Jenkins Pipeline Syntax: buildDiscarder và logRotator](https://www.jenkins.io/doc/pipeline/steps/workflow-job-properties/#builddiscarder-set-the-application-build-discarder)
 - [Jenkins Artifact Manager on S3 plugin](https://plugins.jenkins.io/artifact-manager-s3/)
+- [Jenkins HTTP Request Plugin](https://plugins.jenkins.io/http_request/)
 - [Jenkins Credentials](https://www.jenkins.io/doc/book/using/using-credentials/)
 
 ## Đọc tiếp
