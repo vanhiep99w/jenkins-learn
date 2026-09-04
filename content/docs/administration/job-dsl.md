@@ -103,9 +103,9 @@ lab/
         └── catalog-verify
 ```
 
-`lookupStrategy` quyết định cách Job DSL diễn giải tên tương đối. Với `SEED_JOB`, tên tương đối được resolve từ folder chứa seed job. Ví dụ seed ở `lab/seeds/catalog` và DSL khai báo `pipelineJob('catalog-ci')` sẽ tạo `lab/seeds/catalog/catalog-ci`, không phải job ở root. Điều này giúp mỗi seed bị neo vào namespace của nó, nhưng cũng dễ tạo path sai nếu người viết không hiểu vị trí seed.
+`lookupStrategy` quyết định cách Job DSL diễn giải tên item. Ví dụ này cố ý dùng `JENKINS_ROOT`: mọi path `lab/...` trong DSL được resolve từ Jenkins root, nên seed ở `lab/seeds/catalog` vẫn tạo đúng `lab/teams/payments/catalog-verify`. Điều này làm namespace đích, inventory và removal review nhìn thấy rõ trong source.
 
-Trong ví dụ này, DSL dùng path đầy đủ `lab/teams/payments/...` **và** `lookupStrategy: 'SEED_JOB'`. Path đầy đủ làm đích rõ trong review; strategy vẫn bảo vệ các tham chiếu tương đối nếu được thêm sau này. Chọn một convention, test trong folder sandbox và không đổi strategy giữa các lần chạy chỉ vì muốn sửa nhanh một path.
+`SEED_JOB` là lựa chọn khác: tên tương đối được resolve từ folder chứa seed job. Ví dụ cùng seed `lab/seeds/catalog` khai báo `pipelineJob('catalog-ci')` với `SEED_JOB` sẽ tạo `lab/seeds/catalog/catalog-ci`, không phải job ở root. Chỉ dùng strategy này khi toàn bộ DSL, expected result, inventory và removal policy đều neo theo folder seed. Không trộn path root `lab/...` với `SEED_JOB`, và không đổi strategy giữa các lần chạy chỉ vì muốn sửa nhanh một path.
 
 ### Idempotency và ownership
 
@@ -164,7 +164,7 @@ pipeline {
       steps {
         jobDsl(
           targets: 'jobs/**/*.groovy',
-          lookupStrategy: 'SEED_JOB',
+          lookupStrategy: 'JENKINS_ROOT',
           sandbox: true,
           ignoreExisting: false,
           failOnMissingPlugin: true,
@@ -295,25 +295,27 @@ Validation không thay authorization. Một allowlist ngăn input lạ đi vào 
 
 ### Điều kiện và chuẩn bị
 
-Lab tạo một controller local và namespace `lab/`; nó không cần SCM production hay credential. Cần Docker, port `8080` còn trống và một image Jenkins LTS mà tổ chức cho phép dùng. Chạy lệnh trong terminal riêng; các lệnh không được thực hiện thay cho production.
+Lab tạo một controller local và namespace `lab/`; nó không cần SCM production hay credential. Cần Docker, port `8080` còn trống **trên loopback**, và một image Jenkins LTS đã được tổ chức phê duyệt theo version lẫn digest. Trước khi chạy, thay hai giá trị trong dấu `<...>` bằng reference bất biến đã review; không dùng tag di động như `lts-jdk17` và không tự kéo image khác digest đã duyệt.
 
 ```bash
+JENKINS_IMAGE='jenkins/jenkins:<approved-lts-version>-jdk17@sha256:<approved-digest>'
+docker image inspect "$JENKINS_IMAGE" >/dev/null
 docker volume create jenkins-job-dsl-lab
-docker run --name jenkins-job-dsl-lab --rm -p 8080:8080 \
+docker run --name jenkins-job-dsl-lab --rm -p 127.0.0.1:8080:8080 \
   -v jenkins-job-dsl-lab:/var/jenkins_home \
-  jenkins/jenkins:lts-jdk17
+  "$JENKINS_IMAGE"
 ```
 
-Mở `http://localhost:8080`, lấy initial password từ log container, rồi hoàn tất setup local bằng admin **chỉ dùng cho lab**. Cài Job DSL, Pipeline và Git plugin qua Plugin Manager; restart local controller khi UI/plugin yêu cầu. Tại API Viewer, xác nhận `folder`, `job`, `git`, `shell` và các option của `jobDsl` phù hợp version vừa cài.
+Kết quả mong đợi: `docker image inspect` xác nhận đúng image đã pin; `docker port jenkins-job-dsl-lab` hiển thị mapping `127.0.0.1:8080` và UI chỉ truy cập được từ máy local tại `http://127.0.0.1:8080`. Lấy initial password từ log container, rồi hoàn tất setup local bằng admin **chỉ dùng cho lab**. Cài Job DSL, Pipeline và Git plugin qua Plugin Manager; restart local controller khi UI/plugin yêu cầu. Tại API Viewer, xác nhận `folder`, `job`, `git`, `shell` và các option của `jobDsl` phù hợp version vừa cài.
 
-Tạo repository local chứa `Jenkinsfile` và `jobs/catalog-verify.groovy` đúng như phần trên. Có thể dùng Git server local hoặc repository public chứa dữ liệu vô hại; nếu chưa có SCM, tạo Pipeline seed bằng script inline **chỉ cho lab**, sau đó chuyển Jenkinsfile vào SCM trước khi áp dụng quy trình thật. Tạo seed job trong folder `lab/seeds` và đảm bảo agent/executor dùng cho lab, không phải controller production.
+Tạo repository local chứa `Jenkinsfile` và `jobs/catalog-verify.groovy` đúng như phần trên. Có thể dùng Git server local hoặc repository public chứa dữ liệu vô hại; nếu chưa có SCM, tạo Pipeline seed bằng script inline **chỉ cho lab**, sau đó chuyển Jenkinsfile vào SCM trước khi áp dụng quy trình thật. Tạo seed job trong folder `lab/seeds`; nhờ `lookupStrategy: 'JENKINS_ROOT'`, DSL mẫu vẫn chỉ tạo item tại `lab/teams/payments/`. Đảm bảo agent/executor dùng cho lab, không phải controller production.
 
 ### Chạy seed và quan sát kết quả
 
-1. Chạy `lab/seeds/catalog` lần đầu. Kỳ vọng Console Output cho biết DSL file đã được xử lý và `lab/teams/payments/catalog-verify` được tạo.
-2. Chạy lại ở cùng commit. Kỳ vọng không xuất hiện thêm tên job khác; item được nhận diện là generated/updated theo log plugin. Đây là kiểm tra idempotency của cấu hình, không phải kiểm tra build ứng dụng.
-3. Sửa **description** trong `jobs/catalog-verify.groovy`, commit, review mô phỏng rồi chạy lại seed. Kỳ vọng description của job đổi theo DSL. Không sửa UI để chứng minh idempotency: thay đổi UI là drift và sẽ bị source of truth ghi đè.
-4. Tạo một branch lab chỉ bỏ file DSL, review diff và chạy seed với `removedJobAction: 'DISABLE'`. Kỳ vọng job cũ bị disable, không bị xóa. Đối chiếu config/history còn tồn tại, rồi khôi phục file và chạy seed để xác nhận lifecycle trước khi rời lab.
+1. Chạy `lab/seeds/catalog` lần đầu. Kỳ vọng Console Output cho biết DSL file đã được xử lý và **chỉ** `lab/teams/payments/catalog-verify` được tạo tại Jenkins root namespace `lab/`, không phải `lab/seeds/catalog/lab/...`.
+2. Chạy lại ở cùng commit. Kỳ vọng không xuất hiện thêm tên job khác; item `lab/teams/payments/catalog-verify` được nhận diện là generated/updated theo log plugin. Đây là kiểm tra idempotency của cấu hình, không phải kiểm tra build ứng dụng.
+3. Sửa **description** trong `jobs/catalog-verify.groovy`, commit, review mô phỏng rồi chạy lại seed. Kỳ vọng description của chính job `lab/teams/payments/catalog-verify` đổi theo DSL. Không sửa UI để chứng minh idempotency: thay đổi UI là drift và sẽ bị source of truth ghi đè.
+4. Tạo một branch lab chỉ bỏ file DSL, review diff và chạy seed với `removedJobAction: 'DISABLE'`. Kỳ vọng `lab/teams/payments/catalog-verify` bị disable, không bị xóa; không item nào dưới `lab/seeds/catalog/` bị tác động. Đối chiếu config/history còn tồn tại, rồi khôi phục file và chạy seed để xác nhận lifecycle trước khi rời lab.
 5. Kiểm tra **In-process Script Approval**. Kỳ vọng không có approval mới với DSL mẫu sandbox. Nếu có yêu cầu, dừng lab và đọc method/signature; không approve để tiếp tục cho nhanh.
 
 Lab không chứng minh Jenkins production tương thích, authorization đúng hoặc removal an toàn ở catalog thật. Nó chỉ xác minh API/plugin cục bộ, seed flow, idempotency và hành vi disable trong namespace tự tạo.
@@ -349,7 +351,7 @@ Kết quả mong đợi: container dừng và chỉ volume `jenkins-job-dsl-lab`
 - [ ] Jenkins LTS, Java, Job DSL và plugin mở rộng DSL đã được ghi version; API Viewer của instance đã được xem trước thay đổi.
 - [ ] Job DSL, Pipeline, JCasC và Multibranch có ranh giới ownership rõ; không dùng Job DSL thay thế Jenkinsfile hoặc controller configuration.
 - [ ] Seed checkout revision DSL đã review từ protected source; không chạy DSL từ fork, upload hoặc branch không tin cậy.
-- [ ] Naming/folder prefix tách lab, staging và production; `lookupStrategy` đã được kiểm tra ở seed folder thật.
+- [ ] Naming/folder prefix tách lab, staging và production; `lookupStrategy: 'JENKINS_ROOT'` đã được kiểm tra với seed trong folder và path generated tại Jenkins root namespace mong đợi.
 - [ ] Một generated item chỉ có một seed owner; UI drift được đưa về DSL thay vì giữ hai source of truth.
 - [ ] Seed chạy lặp cùng revision không tạo item trùng; log build, commit SHA và item thay đổi được lưu làm bằng chứng.
 - [ ] `removedJobAction` mặc định là `IGNORE` hoặc `DISABLE` theo giai đoạn; không xóa hàng loạt và đã có inventory/review trước mọi removal.
