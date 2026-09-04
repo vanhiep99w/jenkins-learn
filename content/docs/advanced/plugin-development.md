@@ -472,7 +472,7 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
 - Apache Maven 3.9.6. Plugin Parent `6.2138.v03274d462c13` yêu cầu Maven từ 3.9.6 và compile release 17.
 - Maven phải truy cập Maven Central và `https://repo.jenkins-ci.org/public/`, hoặc mirror đã phê duyệt có cùng artifact đã pin.
 - Máy có đủ disk/RAM để Maven tải dependency và Jenkins Test Harness khởi động runtime test.
-- Nếu dùng `mvn hpi:run`, đây là Jenkins runtime local cô lập: `JENKINS_HOME` được tạo dưới `/tmp/jenkins-plugin-lab.*`, port loopback `8085` phải đang trống, và không được import plugin/config/credential production.
+- Nếu dùng `mvn hpi:run`, đây là Jenkins runtime local cô lập: `JENKINS_HOME` được tạo dưới `/tmp/jenkins-plugin-lab.*`. HPI Maven Plugin `3.1802.v14f4709445a_b_` do parent quản lý nhận user properties `host` và `port`; lab truyền rõ `-Dhost=127.0.0.1 -Dport=8085`, không dựa vào host mặc định. Port `8085` phải đang trống, không được import plugin/config/credential production, và listener sau khi chạy phải được xác minh là `127.0.0.1` hoặc `::1`.
 
 ### Tạo, kiểm tra và dọn dẹp
 
@@ -502,10 +502,20 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
    LAB_HOME="$(mktemp -d "$LAB_PARENT/jenkins-home.XXXXXX")"
    printf 'jenkins-plugin-lab-home\n' > "$LAB_HOME/.jenkins-plugin-lab-home"
    export JENKINS_HOME="$LAB_HOME"
-   mvn -B -ntp hpi:run -Djetty.port=8085
+   mvn -B -ntp hpi:run -Dhost=127.0.0.1 -Dport=8085
    ```
 
-   Mở `http://127.0.0.1:8085/`, quan sát plugin mẫu load, rồi dừng process bằng `Ctrl+C`. Không dùng endpoint này để thử quyền admin hoặc upload artifact.
+   `host` và `port` là user properties của goal `hpi:run`: `host` chọn network interface, còn `port` chọn HTTP port. Giữ `hpi:run` chạy ở terminal đầu tiên; sau khi Jenkins khởi động, mở terminal thứ hai và dùng **một** lệnh read-only có sẵn trên máy lab để xác minh listener trước khi mở UI:
+
+   ```bash
+   ss -ltn '( sport = :8085 )'
+   ```
+
+   ```bash
+   lsof -nP -iTCP:8085 -sTCP:LISTEN
+   ```
+
+   Chỉ tiếp tục khi output cho thấy `127.0.0.1:8085` hoặc `::1:8085` theo cách hệ điều hành biểu diễn loopback. Nếu thấy `0.0.0.0`, `[::]`, IP LAN hoặc không thể xác minh listener, dừng runtime bằng `Ctrl+C`; không mở UI hay thay host để tiếp tục. Khi đã pass, mở `http://127.0.0.1:8085/`, quan sát plugin mẫu load, rồi dừng process bằng `Ctrl+C`. Không dùng endpoint này để thử quyền admin hoặc upload artifact.
 
 4. Sau compile/test-only **hoặc** sau khi process `hpi:run` đã dừng, cleanup luôn xác nhận prefix và marker của parent. `LAB_HOME=''` đã được khai báo từ bước 1 nên vẫn an toàn khi shell dùng `set -u`. Chỉ khi runtime tùy chọn đã tạo `LAB_HOME` thì script mới kiểm tra prefix child, marker child và quan hệ parent–child. Bất kỳ guard nào fail đều `exit 1` trước lệnh xóa và không đụng đường dẫn khác:
 
@@ -536,7 +546,7 @@ Lab này chỉ tạo một project local và chạy compile/test. Nó không ch�
 
 ### Kết quả mong đợi
 
-Với Java 17, Maven 3.9.6 và version set đã pin, `mvn clean verify` kết thúc `BUILD SUCCESS`, tạo report test trong `target/` và không cần secret. Nhánh compile/test-only cleanup parent sandbox mà không cần `LAB_HOME`. Nếu chạy runtime tùy chọn, `hpi:run` chỉ bind loopback port `8085` và Console Output không chứa token/password; cleanup kiểm tra thêm marker child. Sau cleanup hợp lệ, toàn bộ `$LAB_PARENT` không còn; nếu bất kỳ guard nào fail, script dừng và không xóa gì.
+Với Java 17, Maven 3.9.6 và version set đã pin, `mvn clean verify` kết thúc `BUILD SUCCESS`, tạo report test trong `target/` và không cần secret. Nhánh compile/test-only cleanup parent sandbox mà không cần `LAB_HOME`. Nếu chạy runtime tùy chọn, command đã cấu hình rõ `host=127.0.0.1` và `port=8085`; chỉ coi kiểm tra runtime đạt khi `ss` hoặc `lsof` xác minh listener loopback, không phải `0.0.0.0`, `[::]` hay IP LAN. Console Output không chứa token/password; cleanup kiểm tra thêm marker child. Sau cleanup hợp lệ, toàn bộ `$LAB_PARENT` không còn; nếu bất kỳ guard nào fail, script dừng và không xóa gì.
 
 <Callout type="idea" title="Giữ lab có thể lặp lại">
   Ghi JDK, Maven, archetype/parent/BOM/core versions, command, commit SHA và kết quả test vào pull request hoặc release evidence. Không đính kèm `.m2` cache, `target/`, home runtime hay log chưa redact để “chứng minh” lab.
@@ -596,3 +606,4 @@ Không paste toàn bộ `JENKINS_HOME`, thread dump, HTTP header hay Console Out
 - [Jenkins core 2.528.3](https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-core/2.528.3/jenkins-core-2.528.3.pom)
 - [Pipeline: Step API Plugin](https://plugins.jenkins.io/workflow-step-api/)
 - [Workflow Step API Maven metadata](https://repo.jenkins-ci.org/public/org/jenkins-ci/plugins/workflow/workflow-step-api/maven-metadata.xml)
+- [HPI Maven Plugin `run` goal parameters](https://jenkinsci.github.io/maven-hpi-plugin/run-mojo.html)
