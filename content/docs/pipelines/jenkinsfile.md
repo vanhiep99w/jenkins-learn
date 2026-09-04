@@ -152,14 +152,14 @@ Tải `jenkins-cli.jar` từ URL Jenkins của tổ chức, rồi dùng API toke
 export JENKINS_URL='https://jenkins.example.com'
 java -jar jenkins-cli.jar -s "$JENKINS_URL" \
   -auth @"$HOME/.config/jenkins-cli-auth" \
-  declarative-linter -f Jenkinsfile
+  declarative-linter < Jenkinsfile
 ```
 
 File được tham chiếu bởi `-auth @...` chứa một dòng `username:apiToken` do Jenkins cấp, không phải mật khẩu đăng nhập và không phải giá trị mẫu để chép vào Git. Lệnh trả về kết quả parser của Jenkins; chỉ xem syntax là hợp lệ khi command thành công và output không báo lỗi. Jenkins CLI phải được bật/cho phép, endpoint phải truy cập được qua TLS, và tài khoản vẫn cần các quyền mà controller yêu cầu. Một số cài đặt có CSRF, SSO hoặc policy mạng khiến cách gọi HTTP trực tiếp cần crumb/xác thực bổ sung; dùng CLI theo cấu hình tổ chức thay vì tắt bảo vệ để “cho linter chạy”.
 
 ### Kiểm tra trong Jenkins và giới hạn
 
-Khi đã có Jenkins, có thể dùng **Pipeline Syntax** để tra cứu và tạo snippet cho step/directive, rồi tạo một Pipeline job thử nghiệm hoặc branch CI để chạy Jenkinsfile từ SCM. Với Declarative Pipeline, endpoint `POST /declarative-linter/validate` cũng có thể được tích hợp vào công cụ nội bộ, nhưng phải xác thực, dùng crumb nếu Jenkins yêu cầu và không gửi Jenkinsfile có secret.
+Khi đã có Jenkins, có thể dùng **Pipeline Syntax** để tra cứu và tạo snippet cho step/directive, rồi tạo một Pipeline job thử nghiệm hoặc branch CI để chạy Jenkinsfile từ SCM. Với Declarative Pipeline, endpoint `POST /pipeline-model-converter/validate` của plugin Pipeline Model Definition cũng có thể được tích hợp vào công cụ nội bộ. Request gửi multipart form field tên `jenkinsfile`; vẫn phải xác thực, dùng crumb nếu Jenkins yêu cầu và không gửi Jenkinsfile có secret.
 
 Nếu chưa có Jenkins, chỉ có thể kiểm tra cục bộ ở mức cơ bản: review dấu ngoặc, dùng syntax highlighting Groovy và chạy formatter/check của repository nếu có. Những việc này **không thay thế** Declarative linter. Không cài plugin hoặc mở endpoint chỉ để xác minh một file; hãy thực hiện validation trên controller lab/staging được quản trị.
 
