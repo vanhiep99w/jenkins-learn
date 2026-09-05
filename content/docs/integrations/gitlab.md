@@ -218,17 +218,12 @@ pipeline {
   }
 
   stages {
-    stage('Checkout revision selected by Multibranch') {
-      agent { label 'untrusted-ci-linux' }
-      steps {
-        checkout scm
-        sh 'git rev-parse HEAD'
-      }
-    }
-
     stage('Unit gate') {
       agent { label 'untrusted-ci-linux' }
       steps {
+        // Mỗi stage agent có workspace riêng; checkout đúng SCM revision ở đây.
+        checkout scm
+        sh 'git rev-parse HEAD'
         sh './ci/run-unit-tests'
       }
       post {
@@ -246,6 +241,10 @@ pipeline {
       }
       agent { label 'trusted-release-linux' }
       steps {
+        // Chỉ checkout revision mà Multibranch đã chọn cho protected branch này.
+        // Không chuyển source/script từ lane MR không tin cậy vào release workspace.
+        checkout scm
+        sh 'git rev-parse HEAD'
         sh './ci/verify-release-policy'
       }
     }
@@ -253,7 +252,9 @@ pipeline {
 }
 ```
 
-`branch 'main'` là điều kiện Declarative Multibranch; nó không chứng minh GitLab đã áp branch protection hoặc revision đến sau merge. Xác minh tên branch và trust của source trên controller sandbox, rồi thêm policy protected-branch/release độc lập. Không dùng điều kiện `when` này để cấp credential cho code fork/MR. [Jenkinsfile](/docs/pipelines/jenkinsfile) and [Xử lý lỗi và Retry](/docs/pipelines/error-handling) cover syntax, exit codes and failure propagation.
+Vì Pipeline có `agent none`, workspace của hai stage agent không được giả định là dùng chung. Mỗi stage gọi `./ci/*` tự `checkout scm` revision mà Multibranch đã chọn; report JUnit được publish trong chính workspace của `Unit gate`. Không dùng `stash`/`unstash` để chuyển source hoặc script từ lane MR không tin cậy sang release workspace. `Protected-branch release gate` chỉ được cấp agent sau `when { branch 'main' }`, rồi checkout riêng revision của child job đó; nếu cần credential release, chỉ nạp nó trong stage này sau khi sandbox đã xác minh branch/discovery policy.
+
+`branch 'main'` là điều kiện Declarative Multibranch; nó không chứng minh GitLab đã áp branch protection hoặc revision đến sau merge. Xác minh tên branch và trust của source trên controller sandbox, rồi thêm policy protected-branch/release độc lập. Không dùng điều kiện `when` này để cấp credential cho code fork/MR. [Jenkinsfile](/docs/pipelines/jenkinsfile) và [Xử lý lỗi và Retry](/docs/pipelines/error-handling) trình bày syntax, exit code và failure propagation.
 
 ## Vận hành webhook và status
 
