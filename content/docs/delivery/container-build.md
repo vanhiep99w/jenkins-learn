@@ -137,13 +137,13 @@ Hardening runtime còn cần ở nơi chạy container: `runAsNonRoot`, `allowPr
 
 Mẫu dưới cần Jenkins LTS với Pipeline: Declarative, Git, Credentials Binding, JUnit và Artifact Manager mặc định hoặc backend đã được phê duyệt. Directive `timestamps()` cần Timestamper. Xác nhận syntax/khả năng của plugin trong **Pipeline Syntax** trên controller đang chạy.
 
-Agent `linux && container-builder` có Docker CLI với Buildx/BuildKit, Trivy `0.58.1`, Syft `1.20.0`, Cosign `2.4.1`, Git, shell POSIX và Python 3 đã được đội platform cài/pin. Agent `trusted-release` còn có identity keyless OIDC đã policy kiểm soát; registry phải hỗ trợ OCI referrers để giữ signature/attestation. Dùng image agent hoặc catalog tool đã pin theo digest, không tải binary trong lúc release.
+Agent `linux && container-builder` có Docker CLI với Buildx/BuildKit, Trivy `0.58.1`, Syft `1.20.0`, Cosign `2.4.1`, Git, shell POSIX và Python 3 đã được đội platform cài/pin. Agent `trusted-release` còn có identity keyless OIDC đã policy kiểm soát; registry phải hỗ trợ OCI referrers để giữ signature/attestation. `COSIGN_CERTIFICATE_IDENTITY` và `COSIGN_CERTIFICATE_OIDC_ISSUER` trong mẫu là policy allowlist, phải khớp chính xác certificate identity và issuer OIDC do platform phê duyệt. Dùng image agent hoặc catalog tool đã pin theo digest, không tải binary trong lúc release.
 
 Mẫu dùng Docker CLI để dễ đọc. Rootless BuildKit hoặc remote builder có TLS/authorization là lựa chọn tốt hơn khi hạ tầng hỗ trợ. Không thêm socket host hay chế độ đặc quyền vào agent chỉ để khớp snippet.
 
 ### Jenkinsfile tham chiếu
 
-Jenkinsfile tạo OCI archive và evidence trên lane build, sau đó chỉ lane release mới nhận credential push. Nó dùng tag duy nhất để push, đọc digest từ registry, rồi ký và attest **digest đó**. Các lệnh Cosign giả định keyless identity được cấp cho release agent; nếu registry không hỗ trợ referrers hoặc verification policy chưa sẵn sàng, stage release phải fail-closed.
+Jenkinsfile tạo OCI archive và evidence trên lane build, sau đó chỉ lane release mới nhận credential push. Nó dùng tag duy nhất để push, đọc digest từ registry, rồi ký và attest **digest đó**. `build-metadata.json` là predicate riêng của Jenkins cho traceability; nó **không phải** SLSA Provenance v1 và không được diễn giải như chứng nhận SLSA. Các lệnh Cosign giả định keyless identity được cấp cho release agent; nếu registry không hỗ trợ referrers hoặc verification policy chưa sẵn sàng, stage release phải fail-closed.
 
 ```groovy
 pipeline {
@@ -163,6 +163,8 @@ pipeline {
   environment {
     REGISTRY = 'registry.example.invalid'
     IMAGE_REPOSITORY = 'training/web-api'
+    COSIGN_CERTIFICATE_IDENTITY = 'https://jenkins.example.invalid/oidc/trusted-release'
+    COSIGN_CERTIFICATE_OIDC_ISSUER = 'https://issuer.example.invalid'
   }
 
   stages {
@@ -200,13 +202,13 @@ pipeline {
           python3 - <<'PY'
 import json, os, subprocess
 revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-predicate = {
-  'buildType': 'jenkins-container-build',
-  'invocation': {'configSource': {'uri': 'git', 'digest': {'sha1': revision}}},
-  'metadata': {'buildInvocationId': os.environ['BUILD_TAG']},
+metadata = {
+  'schema': 'https://jenkins.io/attestations/container-build/v1',
+  'sourceRevision': revision,
+  'buildInvocationId': os.environ['BUILD_TAG'],
 }
-with open('evidence/provenance.json', 'w', encoding='utf-8') as output:
-    json.dump(predicate, output, sort_keys=True)
+with open('evidence/build-metadata.json', 'w', encoding='utf-8') as output:
+    json.dump(metadata, output, sort_keys=True)
 PY
           docker image save "$IMAGE_TAG" --output image.tar
           sha256sum image.tar > evidence/image.tar.sha256
@@ -257,7 +259,7 @@ PY
         }
         archiveArtifacts artifacts: 'image-tag.txt,image-digest.txt',
           allowEmptyArchive: false, fingerprint: true
-        stash includes: 'image-digest.txt,reports/sbom.cdx.json,evidence/provenance.json',
+        stash includes: 'image-digest.txt,reports/sbom.cdx.json,evidence/build-metadata.json',
           name: 'registry-digest'
       }
       post {
@@ -284,11 +286,22 @@ PY
           cosign sign --yes "$IMAGE_REF"
           cosign attest --yes --type cyclonedx \
             --predicate reports/sbom.cdx.json "$IMAGE_REF"
-          cosign attest --yes --type https://slsa.dev/provenance/v1 \
-            --predicate evidence/provenance.json "$IMAGE_REF"
-          cosign verify "$IMAGE_REF" > cosign-verify.txt
+          cosign attest --yes --type https://jenkins.io/attestations/container-build/v1 \
+            --predicate evidence/build-metadata.json "$IMAGE_REF"
+          cosign verify \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$IMAGE_REF" > cosign-signature-verify.txt
+          cosign verify-attestation --type cyclonedx \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$IMAGE_REF" > cosign-sbom-attestation-verify.txt
+          cosign verify-attestation --type https://jenkins.io/attestations/container-build/v1 \
+            --certificate-identity "$COSIGN_CERTIFICATE_IDENTITY" \
+            --certificate-oidc-issuer "$COSIGN_CERTIFICATE_OIDC_ISSUER" \
+            "$IMAGE_REF" > cosign-build-metadata-attestation-verify.txt
         '''
-        archiveArtifacts artifacts: 'image-digest.txt,cosign-verify.txt',
+        archiveArtifacts artifacts: 'image-digest.txt,cosign-*-verify.txt',
           allowEmptyArchive: false, fingerprint: true
       }
       post {
@@ -305,7 +318,7 @@ PY
 
 `when { branch 'main'; not { changeRequest() } }` phải được dùng trong Multibranch Pipeline và đi cùng branch protection. Push xảy ra sau gate trust này. Ký và attestation phải chạy **sau** push vì digest registry là subject cần ký; stage đó chỉ chấp nhận digest vừa ghi, không tính lại từ tag. Nếu signing/attestation fail, release không được promotion dù bytes đã ở repository candidate; policy registry cần giữ candidate không được triển khai cho tới khi verification pass.
 
-Credential registry chỉ sống trong closure push, dùng `--password-stdin`, không được đưa vào argv, URL hoặc console. Không thêm `set -x`, dump environment hay archive toàn workspace. Cosign keyless cần issuer/subject, Fulcio/Rekor và verification policy do tổ chức phê duyệt; đừng thay bằng key file trong Git hay biến môi trường dài hạn.
+Credential registry chỉ sống trong closure push, dùng `--password-stdin`, không được đưa vào argv, URL hoặc console. Không thêm `set -x`, dump environment hay archive toàn workspace. Cosign keyless cần issuer/subject, Fulcio/Rekor và verification policy do tổ chức phê duyệt. `cosign verify` và từng `cosign verify-attestation` đều ràng buộc certificate identity/issuer; thay hai giá trị allowlist bằng policy runtime đã review, không dùng key file trong Git hay biến môi trường dài hạn.
 
 ## SBOM scan ký và registry promotion
 
@@ -319,7 +332,7 @@ SBOM là inventory component/layer, không phải kết luận không có lỗ h
 4. verify Cosign signature, issuer/subject và attestation trước deploy;
 5. theo dõi CVE sau release, rebuild và revoke/promotion block khi cần.
 
-Evidence tối thiểu gồm source revision, base digest, tag, registry digest, Trivy report, CycloneDX SBOM, provenance predicate, Cosign verification, tool/image-agent version và policy decision. Archive Jenkins chỉ phục vụ điều tra ngắn hạn; không archive credential, Docker config, cache hay toàn bộ workspace.
+Evidence tối thiểu gồm source revision, base digest, tag, registry digest, Trivy report, CycloneDX SBOM, predicate build metadata riêng của Jenkins, kết quả verify signature và từng attestation, tool/image-agent version và policy decision. Predicate riêng chỉ tạo traceability; nó không phải SLSA Provenance v1. Archive Jenkins chỉ phục vụ điều tra ngắn hạn; không archive credential, Docker config, cache hay toàn bộ workspace.
 
 ### Digest promotion và retention
 
@@ -331,7 +344,7 @@ Tách lifecycle cho từng loại dữ liệu:
 | --- | --- | --- |
 | OCI manifest/layer release | Registry | Version bất biến; giữ theo rollback và compliance policy |
 | Candidate không được promote | Registry | TTL ngắn, chỉ xóa khi không còn evidence/consumer |
-| SBOM, provenance, signature | Registry referrer hoặc store evidence | Giữ ít nhất bằng artifact mà chúng chứng minh |
+| SBOM, build metadata, signature | Registry referrer hoặc store evidence | Giữ ít nhất bằng artifact mà chúng chứng minh |
 | Jenkins report/archive | Jenkins hoặc Artifact Manager | Ngắn hơn release; quota và backup có owner |
 | Cache BuildKit/dependency | Builder cache phân tier | TTL/quota, không là evidence hay source phát hành |
 
@@ -479,16 +492,16 @@ test ! -e "$LAB_ROOT"
 - [ ] Build context hẹp; `.dockerignore` chặn secret, cache, report và source không cần thiết.
 - [ ] Agent/image/toolchain được pin; BuildKit cache có key, quota và trust boundary.
 - [ ] Runtime không root, không privileged, không Docker socket trên controller; capability/filesystem/network được harden ở runtime.
-- [ ] Test, scan threshold, exception expiry, SBOM và provenance có policy/owner rõ.
+- [ ] Test, scan threshold, exception expiry, SBOM và build metadata có policy/owner rõ; metadata riêng không bị gọi là SLSA Provenance v1.
 - [ ] Pull request/fork không có registry write, key ký, kubeconfig, cache release ghi được hoặc agent release.
 - [ ] Registry credential có quyền tối thiểu, binding ngắn, stdin login; secret không đi vào argv/log/artifact.
-- [ ] Release chỉ sau branch/trust gate, registry digest đã archive và Cosign signature/attestation đã verify.
+- [ ] Release chỉ sau branch/trust gate, registry digest đã archive; Cosign signature và từng attestation đã verify với certificate identity/issuer policy.
 - [ ] Promotion chuyển cùng digest, không rebuild; manifest môi trường không dùng tag di động.
 - [ ] Registry, evidence và Jenkins archive có retention, quota, rollback và restore policy.
 
 ### Evidence mong đợi
 
-Một release pass cung cấp source SHA, `image-tag.txt`, `image-digest.txt`, JSON scan, CycloneDX SBOM, provenance JSON, output Cosign verify, tool/version manifest và policy decision đã redact. Một pull request pass chỉ có evidence build/test/scan không nhạy cảm; không có registry push, signature hay deploy record.
+Một release pass cung cấp source SHA, `image-tag.txt`, `image-digest.txt`, JSON scan, CycloneDX SBOM, `build-metadata.json`, output verify chữ ký và hai attestation Cosign, tool/version manifest cùng policy decision đã redact. Build metadata này không phải SLSA Provenance v1. Một pull request pass chỉ có evidence build/test/scan không nhạy cảm; không có registry push, signature hay deploy record.
 
 Lab static phải in `static container fixture validation: PASS`. Nếu Docker runtime không có hoặc chưa được sandbox cho phép, bằng chứng đúng là static pass và trạng thái Docker chưa chạy. Tương tự, linter Jenkins, registry push, OIDC signing và runtime orchestration chỉ được khẳng định sau khi lane sandbox có plugin, agent, credential vô hại và policy tương ứng.
 
@@ -504,7 +517,6 @@ Lab static phải in `static container fixture validation: PASS`. Nếu Docker r
 - [Trivy image scanning](https://trivy.dev/v0.58/docs/target/container_image/)
 - [Syft documentation](https://github.com/anchore/syft)
 - [Sigstore Cosign attestations](https://docs.sigstore.dev/cosign/verifying/attestations/)
-- [SLSA provenance](https://slsa.dev/spec/v1.0/provenance)
 
 <Cards>
   <Card title="Jenkinsfile" href="/docs/pipelines/jenkinsfile" description="Kiểm tra syntax, agent và Pipeline as Code trước runtime." />
