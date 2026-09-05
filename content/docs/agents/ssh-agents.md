@@ -41,11 +41,11 @@ Luồng SSH launch đi từ controller đến agent. Plugin **SSH Build Agents**
 
 ```text
 ┌──────────────┐  TCP 22 hoặc port SSH đã duyệt  ┌──────────────────┐
-│ Controller   │ ─────────────────────────────► │ Linux agent      │
-│ SSH launcher │  credential + host key check   │ service account  │
+│ Controller   │ ─────────────────────────────►  │ Linux agent      │
+│ SSH launcher │  credential + host key check    │ service account  │
 └──────┬───────┘                                 └────────┬─────────┘
-       │                                                   │
-       │ SSH channel                                       │ java -jar agent.jar
+       │                                                  │
+       │ SSH channel                                      │ java -jar agent.jar
        └──────────── Jenkins Remoting ────────────────────┘
                          queue, work, log, trạng thái
 ```

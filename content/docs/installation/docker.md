@@ -104,7 +104,7 @@ Image chính thức đặt `JENKINS_HOME` tại `/var/jenkins_home`. Thư mục 
 │  │ Jenkins container    │                   │
 │  │ HTTP 8080            │                   │
 │  │ Agent TCP 50000      │                   │
-│  │ /var/jenkins_home ───┼──► named volume  │
+│  │ /var/jenkins_home ───┼──► named volume   │
 │  └──────────────────────┘     jenkins_home  │
 │                                             │
 └─────────────────────────────────────────────┘
