@@ -381,7 +381,7 @@ Kubeconfig được lưu kiểu **secret file** với ID `kubeconfig-catalog-sta
 
 ### Jenkinsfile deploy theo digest
 
-Pipeline dưới giả định CI đã publish `release/image-ref.txt`, trong đó chỉ có full reference theo digest. Stage CI có thể tạo/stash file này sau test, scan và ký. Mọi release stage bị skip trước khi cấp agent/credential nếu không phải `main` hoặc là change request; branch protection SCM vẫn là điều kiện độc lập.
+Pipeline dưới giả định CI đã publish `release/image-ref.txt`, trong đó chỉ có full reference theo digest. Stage CI tạo/stash file này sau test, scan và ký. Vì pipeline-level dùng `agent none`, workspace của mỗi stage có agent có thể khác nhau. Stage verify checkout lại `scm` ở revision Jenkins đã chọn cho chính run, rồi mới gọi script `./ci/verify-image-signature`; file digest vẫn đi qua stash của cùng run. Mọi release stage bị skip trước khi cấp agent/credential nếu không phải `main` hoặc là change request; branch protection SCM vẫn là điều kiện độc lập.
 
 ```groovy
 pipeline {
@@ -434,6 +434,8 @@ pipeline {
       }
       agent { label 'linux && trusted-release' }
       steps {
+        // Lấy script từ revision SCM của chính Pipeline run trên trusted agent.
+        checkout scm
         unstash 'release-input'
         sh '''#!/bin/sh
           set -eu
