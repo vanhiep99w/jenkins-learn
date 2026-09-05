@@ -169,7 +169,7 @@ Tránh labels có giá trị gần như vô hạn hoặc chứa dữ liệu nh�
 
 Các query dưới đây giả sử namespace `ci`; thay toàn bộ tiền tố sau khi xem output thật. Nếu metric có labels khác dự kiến, sửa aggregation theo label đang tồn tại thay vì thêm label bịa ra.
 
-```promql
+```text
 # Controller báo chưa sẵn sàng nhận request theo collector của plugin.
 ci_jenkins_up == 0
 

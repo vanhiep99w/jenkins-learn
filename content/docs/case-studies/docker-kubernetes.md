@@ -393,7 +393,7 @@ CMD ["node", "dist/server.js"]
 
 ### .dockerignore và secret
 
-```gitignore
+```text
 .git
 node_modules
 reports

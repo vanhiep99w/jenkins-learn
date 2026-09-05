@@ -113,7 +113,7 @@ Chỉ dùng mount này khi builder đã bật BuildKit và cache được phân 
 
 Đặt `.dockerignore` cạnh Dockerfile và review nó như policy dữ liệu:
 
-```gitignore
+```text
 .git
 node_modules
 coverage

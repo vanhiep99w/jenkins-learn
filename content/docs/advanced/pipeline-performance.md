@@ -299,7 +299,7 @@ Một cải thiện chỉ được chấp nhận khi output, quality gate, crede
 
 Query dưới chỉ là khởi điểm cho Prometheus Metrics Plugin/exporter đã được cấu hình **trong sandbox**. Tên metric và label không phải API chung; hãy xem endpoint metrics của chính instance, đặt namespace thực tế và không công bố endpoint/dữ liệu nội bộ.
 
-```promql
+```text
 # Saturation executor theo pool nếu exporter có label pool.
 sum by (pool) (ci_jenkins_executors_busy)
 / clamp_min(sum by (pool) (ci_jenkins_executors_online), 1)

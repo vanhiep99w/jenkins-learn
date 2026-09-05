@@ -84,7 +84,7 @@ Một dashboard vận hành tối thiểu có hàng controller (availability, HT
 
 Query sau là điểm bắt đầu **minh họa** cho Prometheus Metrics Plugin với namespace `ci`. Xem `/prometheus/` của instance sandbox để xác nhận tên metric và labels trước; không sao chép query hoặc threshold vào production nếu metric không tồn tại.
 
-```promql
+```text
 # Saturation executor trên từng pool nếu collector có label pool.
 sum by (pool) (ci_jenkins_executors_busy)
 / clamp_min(sum by (pool) (ci_jenkins_executors_online), 1)
