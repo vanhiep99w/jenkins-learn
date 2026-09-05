@@ -235,14 +235,17 @@ pipeline {
       agent { label 'trusted-release-linux' }
       steps {
         checkout scm
+        sh '''#!/bin/sh
+          set -eu
+          ./ci/run-required-tests
+          ./ci/run-security-policy
+        '''
         withCredentials([
           string(credentialsId: 'artifact-release-publisher', variable: 'ARTIFACT_PUBLISH_TOKEN')
         ]) {
           sh '''#!/bin/sh
             set -eu
             set +x
-            ./ci/run-required-tests
-            ./ci/run-security-policy
             ./ci/build-and-publish-release --output release/manifest.json
             test -s release/manifest.json
           '''
@@ -580,6 +583,13 @@ pipeline {
         LAB_ROOT="$WORKSPACE/promotion-lab-$BUILD_NUMBER"
         case "$LAB_ROOT" in
           "$WORKSPACE"/promotion-lab-*)
+            WORKSPACE_REAL="$(cd -P -- "$WORKSPACE" && pwd)"
+            LAB_PARENT="$(dirname -- "$LAB_ROOT")"
+            LAB_PARENT_REAL="$(cd -P -- "$LAB_PARENT" && pwd)"
+            if [ "$LAB_PARENT_REAL" != "$WORKSPACE_REAL" ]; then
+              printf '%s\n' 'Refuse cleanup outside the direct workspace child.' >&2
+              exit 1
+            fi
             test -f "$LAB_ROOT/.lab-owned"
             rm -rf -- "$LAB_ROOT"
             ;;
