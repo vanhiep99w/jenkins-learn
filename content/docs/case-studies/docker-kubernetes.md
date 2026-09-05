@@ -199,6 +199,14 @@ pipeline {
           npm test
         '''
       }
+      post {
+        always {
+          junit allowEmptyResults: true, testResults: 'reports/junit.xml'
+        }
+        cleanup {
+          deleteDir()
+        }
+      }
     }
 
     stage('Build và scan image') {
@@ -223,6 +231,9 @@ pipeline {
       post {
         always {
           archiveArtifacts artifacts: 'reports/*.json', allowEmptyArchive: true, fingerprint: true
+        }
+        cleanup {
+          deleteDir()
         }
       }
     }
@@ -267,6 +278,11 @@ pipeline {
         archiveArtifacts artifacts: 'image-tag.txt,image-digest.txt', fingerprint: true
         stash includes: 'image-digest.txt', name: 'release-image'
       }
+      post {
+        cleanup {
+          deleteDir()
+        }
+      }
     }
 
     stage('Deploy staging') {
@@ -291,6 +307,11 @@ pipeline {
               set image deployment/"$KUBE_DEPLOYMENT" web-api="$IMAGE_REF" \
               --record=false
           '''
+        }
+      }
+      post {
+        cleanup {
+          deleteDir()
         }
       }
     }
@@ -321,19 +342,17 @@ pipeline {
         }
         archiveArtifacts artifacts: 'rollout-deployment.json,rollout-pods.txt', fingerprint: true
       }
-    }
-  }
-
-  post {
-    always {
-      junit allowEmptyResults: true, testResults: 'reports/junit.xml'
-      deleteDir()
+      post {
+        cleanup {
+          deleteDir()
+        }
+      }
     }
   }
 }
 ```
 
-`checkout scm` được lặp ở stage dùng agent khác vì stage-level agent có thể là máy khác. `Build và scan image` không nạp credential publish, nên vẫn chạy cho pull request. `Push registry và lấy digest` chỉ được xét trước khi cấp agent khi source là branch `main` và không phải `changeRequest`; branch protection của SCM/Jenkins phải bảo đảm chỉ source đã review mới có thể vào `main`. Vì `withCredentials(registry-publish)` nằm bên trong stage đã gate, PR không bind token registry. Image được chuyển qua OCI archive có chủ đích; với image lớn, không stash qua controller mà dùng artifact manager hoặc cơ chế transfer đã review. Deploy chỉ nhận `image-digest.txt` qua `stash`, không cần Docker daemon hay workspace build. Production vẫn nên scan lại digest sau push vào registry để tránh chỉ tin kết quả trên daemon local.
+`checkout scm` được lặp ở stage dùng agent khác vì stage-level agent có thể là máy khác. `Build và scan image` không nạp credential publish, nên vẫn chạy cho pull request. `Push registry và lấy digest` chỉ được xét trước khi cấp agent khi source là branch `main` và không phải `changeRequest`; branch protection của SCM/Jenkins phải bảo đảm chỉ source đã review mới có thể vào `main`. Vì `withCredentials(registry-publish)` nằm bên trong stage đã gate, PR không bind token registry. Image được chuyển qua OCI archive có chủ đích; với image lớn, không stash qua controller mà dùng artifact manager hoặc cơ chế transfer đã review. `junit` chạy trong `post { always }` của stage test, còn mỗi `deleteDir()` chạy trong `post { cleanup }` của stage có agent; report/artefact được publish trước cleanup và Pipeline cấp cao `agent none` không giả định workspace. Deploy chỉ nhận `image-digest.txt` qua `stash`, không cần Docker daemon hay workspace build. Production vẫn nên scan lại digest sau push vào registry để tránh chỉ tin kết quả trên daemon local.
 
 <Callout type="warn" title="Plugin và CLI có semantics riêng">
   `docker buildx imagetools inspect` cần Buildx có trong agent. `--record` của `kubectl set image` không phải audit trail đáng tin cậy; thay vào đó Pipeline archive digest, revision và event. Xác nhận option trên phiên bản CLI/plugin đang được platform phê duyệt trước rollout.
