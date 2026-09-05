@@ -128,13 +128,13 @@ Không dùng alias hoặc tag di động làm release input. Retention cũng kh�
 
 ### Giả định plugin và contract
 
-Ví dụ dùng Jenkins LTS, Pipeline: Declarative, Git, JUnit, Pipeline: Basic Steps, Python 3 trên agent và **HTTP Request Plugin** đã được đội platform pin/review. HTTP Request Plugin phải hỗ trợ `authentication`, `uploadFile`, `outputFile`, `validResponseCodes` và TLS verification trên version đang chạy; kiểm tra lại bằng **Pipeline Syntax → Snippet Generator**. `timestamps()` cần Timestamper.
+Ví dụ dùng Jenkins LTS, Pipeline: Declarative, Git, JUnit, Pipeline: Basic Steps, Python 3 trên agent và **HTTP Request Plugin** đã được đội platform pin/review. HTTP Request Plugin phải hỗ trợ `authentication`, `customHeaders`, `uploadFile`, `outputFile`, `validResponseCodes` và TLS verification trên version đang chạy; kiểm tra lại bằng **Pipeline Syntax → Snippet Generator**. Repository generic HTTP phải honor `If-None-Match: *` và chỉ làm object nhìn thấy sau khi một `PUT` hoàn tất. `timestamps()` cần Timestamper.
 
 Pipeline giả định stage package đã tạo đúng ba file trong `dist/release/`: `widget-1.4.0.tgz`, `widget-1.4.0.tgz.sha256` và `build-metadata.json`. Sidecar checksum dùng tên file `widget-1.4.0.tgz` để `sha256sum -c` xác minh từ cùng directory. Metadata là JSON có `subject.name`, `subject.version`, `subject.sha256` lần lượt bằng `widget-1.4.0.tgz`, `1.4.0` và SHA-256 của package; nó có thể thêm source revision/toolchain theo policy. Đây là contract output của dự án, không phải lệnh build chung cho mọi ngôn ngữ. Agent release đã có CA/network route tới repository; URL `.invalid` trong mẫu chỉ biểu diễn endpoint sandbox và không phải destination để chạy.
 
 ### Jenkinsfile dùng credential-aware step
 
-Snippet archive evidence trước cleanup và chỉ publish khi Multibranch đang build `main`, không phải change request. Nó publish package, sidecar SHA-256 và metadata JSON vào ba path version cố định, sau đó tải lại cả ba để verify. `httpRequest(authentication: ...)` để plugin lấy credential trực tiếp từ Jenkins store; Jenkinsfile không mở secret vào shell/Groovy.
+Snippet archive evidence trước cleanup và chỉ publish khi Multibranch đang build `main`, không phải change request. Nó tạo sidecar SHA-256 và metadata trước, đọc lại/verify hai sidecar, rồi mới upload package như **publication marker** cuối cùng. Consumer chỉ coi release tồn tại khi package marker và cả hai sidecar cùng có mặt, có SHA-256 và subject/version/digest khớp. `httpRequest(authentication: ...)` để plugin lấy credential trực tiếp từ Jenkins store; Jenkinsfile không mở secret vào shell/Groovy.
 
 ```groovy
 pipeline {
@@ -219,52 +219,33 @@ PY
           (cd dist/release && sha256sum -c widget-1.4.0.tgz.sha256)
         '''
         script {
-          def artifactResponse = httpRequest(
-            authentication: 'artifact-release-publisher',
-            consoleLogResponseBody: false,
-            contentType: 'APPLICATION_OCTETSTREAM',
-            httpMode: 'PUT',
-            ignoreSslErrors: false,
-            timeout: 30,
-            uploadFile: env.ARTIFACT_FILE,
-            url: env.REPOSITORY_ARTIFACT_URL,
-            validResponseCodes: '200:201,204'
-          )
           def checksumResponse = httpRequest(
             authentication: 'artifact-release-publisher',
             consoleLogResponseBody: false,
             contentType: 'TEXT_PLAIN',
+            customHeaders: [[maskValue: false, name: 'If-None-Match', value: '*']],
             httpMode: 'PUT',
             ignoreSslErrors: false,
             timeout: 30,
             uploadFile: env.ARTIFACT_SHA256,
             url: env.REPOSITORY_SHA256_URL,
-            validResponseCodes: '200:201,204'
+            validResponseCodes: '200:201,204,412'
           )
           def metadataResponse = httpRequest(
             authentication: 'artifact-release-publisher',
             consoleLogResponseBody: false,
             contentType: 'APPLICATION_JSON',
+            customHeaders: [[maskValue: false, name: 'If-None-Match', value: '*']],
             httpMode: 'PUT',
             ignoreSslErrors: false,
             timeout: 30,
             uploadFile: env.ARTIFACT_METADATA,
             url: env.REPOSITORY_METADATA_URL,
-            validResponseCodes: '200:201,204'
+            validResponseCodes: '200:201,204,412'
           )
-          echo "Đã nhận HTTP status package=${artifactResponse.status}, checksum=${checksumResponse.status}, metadata=${metadataResponse.status}."
+          echo "Đã nhận HTTP status sidecar checksum=${checksumResponse.status}, metadata=${metadataResponse.status}."
 
           sh 'mkdir -p verified-release'
-          httpRequest(
-            authentication: 'artifact-release-publisher',
-            consoleLogResponseBody: false,
-            httpMode: 'GET',
-            ignoreSslErrors: false,
-            outputFile: 'verified-release/widget-1.4.0.tgz',
-            timeout: 30,
-            url: env.REPOSITORY_ARTIFACT_URL,
-            validResponseCodes: '200'
-          )
           httpRequest(
             authentication: 'artifact-release-publisher',
             consoleLogResponseBody: false,
@@ -283,6 +264,53 @@ PY
             outputFile: 'verified-release/build-metadata.json',
             timeout: 30,
             url: env.REPOSITORY_METADATA_URL,
+            validResponseCodes: '200'
+          )
+          sh '''#!/usr/bin/env sh
+            set -eu
+            cmp -s "$ARTIFACT_SHA256" verified-release/widget-1.4.0.tgz.sha256
+            cmp -s "$ARTIFACT_METADATA" verified-release/build-metadata.json
+            python3 - "$ARTIFACT_FILE" verified-release/widget-1.4.0.tgz.sha256 \
+              verified-release/build-metadata.json <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+artifact, checksum_file, metadata_file = map(Path, sys.argv[1:])
+expected = checksum_file.read_text(encoding='utf-8').split()[0]
+actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
+assert expected == actual
+assert metadata['subject'] == {
+    'name': artifact.name,
+    'version': '1.4.0',
+    'sha256': expected,
+}
+PY
+          '''
+
+          def artifactResponse = httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            contentType: 'APPLICATION_OCTETSTREAM',
+            customHeaders: [[maskValue: false, name: 'If-None-Match', value: '*']],
+            httpMode: 'PUT',
+            ignoreSslErrors: false,
+            timeout: 30,
+            uploadFile: env.ARTIFACT_FILE,
+            url: env.REPOSITORY_ARTIFACT_URL,
+            validResponseCodes: '200:201,204,412'
+          )
+          echo "Đã nhận HTTP status publication marker package=${artifactResponse.status}."
+          httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            httpMode: 'GET',
+            ignoreSslErrors: false,
+            outputFile: 'verified-release/widget-1.4.0.tgz',
+            timeout: 30,
+            url: env.REPOSITORY_ARTIFACT_URL,
             validResponseCodes: '200'
           )
         }
@@ -322,18 +350,19 @@ PY
 }
 ```
 
-`authentication` là credential ID, không phải token. `consoleLogResponseBody: false` giảm nguy cơ response nhạy cảm đi vào console. Cùng publisher identity trong mẫu chỉ cần `PUT` và `GET` trên ba path của release để read-after-write verification; nó không cần quyền xóa hay quản trị repository. Ba GET tải package, checksum và metadata, rồi Pipeline kiểm SHA-256 và so body metadata với contract subject/version/digest. Nếu một PUT hoặc GET thất bại, release candidate không được promotion hay deploy; không xóa hoặc upload đè package để “sửa” trạng thái dở dang, mà điều tra audit event và metadata trước. Step không thay policy repository: phải cấu hình server để từ chối ghi đè release, giới hạn service identity ở path release và ghi audit event. Với Maven/npm/OCI, thay stage publish bằng client/protocol tương ứng, giữ nguyên branch gate, identity least privilege, checksum/digest verification và evidence.
+`authentication` là credential ID, không phải token. `consoleLogResponseBody: false` giảm nguy cơ response nhạy cảm đi vào console. Cùng publisher identity trong mẫu chỉ cần `PUT` và `GET` trên ba path của release để read-after-write verification; nó không cần quyền xóa hay quản trị repository. `If-None-Match: *` làm `412` trở thành signal object đã tồn tại, không cho PUT ghi đè. Pipeline PUT checksum/metadata trước, GET/verify chúng, rồi PUT package là publication marker cuối cùng và GET lại đủ ba object để xác minh. Nếu sidecar fail, package marker chưa được tạo; sidecar còn lại là trạng thái chưa hoàn chỉnh mà consumer phải bỏ qua. Nếu package marker trả `412`, Pipeline vẫn GET/verify toàn bộ ba object và chỉ tiếp tục khi bytes/subject/version/digest cùng khớp. Sidecar không có package marker chỉ được owner cleanup theo retention sau khi xác nhận marker vắng mặt; không upload đè để “sửa” trạng thái dở dang. Generic HTTP không tự có transaction/promote atomic: nếu repository không honor precondition hoặc không bảo đảm object chỉ visible sau PUT hoàn tất, dùng API promote/rename atomic do Nexus, Artifactory hoặc provider object storage hỗ trợ thay vì mẫu này. Với Maven/npm/OCI, thay stage publish bằng client/protocol tương ứng, giữ nguyên branch gate, identity least privilege, checksum/digest verification và evidence.
 
 ### Idempotency và failure
 
-Không bọc `httpRequest` trong `retry` mặc định. Nếu timeout xảy ra sau khi server nhận bytes, retry mù có thể tạo conflict hoặc overwrite tùy backend. Quy trình an toàn là:
+Không bọc `httpRequest` trong `retry` mặc định. Nếu timeout xảy ra sau khi server nhận bytes, retry mù có thể tạo conflict hoặc overwrite tùy backend. Với semantics publication marker của mẫu, quy trình an toàn là:
 
-1. dùng API/client do repository hỗ trợ để đọc package, checksum sidecar và metadata của version/path;
-2. đối chiếu size và SHA-256 với artifact của build, rồi xác minh subject/version/digest metadata;
-3. chỉ đánh dấu idempotent khi cả ba object chứng minh cùng bytes và cùng identity;
-4. nếu khác hoặc không đọc được, fail release và điều tra audit event.
+1. PUT checksum và metadata với `If-None-Match: *`; status `412` chỉ báo object đã có, chưa là thành công release;
+2. GET hai sidecar, đối chiếu SHA-256 và subject/version/digest với bytes local;
+3. chỉ sau bước 2, PUT package marker với cùng precondition, rồi GET package và xác minh đủ ba object;
+4. khi bất kỳ PUT trả `412`, GET/verify toàn bộ identity; chỉ coi idempotent khi ba object cùng bytes và cùng identity;
+5. nếu sidecar tồn tại nhưng package marker vắng mặt, consumer bỏ qua; owner dọn theo retention sau khi kiểm marker vẫn vắng, không ghi đè nó.
 
-`PUT` không tự mang nghĩa immutable trên mọi server. Object storage có thể cần conditional request/versioning/object lock; Nexus/Artifactory cần policy chặn redeploy; Maven/npm/OCI có rule format riêng. Không suy diễn một response HTTP xanh là policy release đã đúng.
+`PUT` không tự mang nghĩa immutable hay atomic trên mọi server. Object storage có thể cần conditional request/versioning/object lock; Nexus/Artifactory cần policy chặn redeploy hoặc API promote; Maven/npm/OCI có rule format riêng. Không suy diễn một response HTTP xanh là policy release đã đúng.
 
 ## Retention lifecycle và khôi phục
 
