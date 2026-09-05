@@ -41,7 +41,7 @@ SonarQube tạo tín hiệu về chất lượng và security của source. Jenk
 
 ## Mục tiêu và mô hình
 
-Sau bài này, bạn có thể nối một revision Jenkins với project/branch/PR SonarQube, chạy scanner trên agent đúng toolchain, chờ Quality Gate qua webhook có deadline, và quyết định blocking hay advisory mà không làm build xanh giả. Khung policy rộng hơn nằm ở [Quality Gates](/docs/delivery/quality-gates).
+Sau bài này, bạn có thể nối một revision **trusted** Jenkins với project/branch SonarQube, chạy scanner trên agent đúng toolchain, chờ Quality Gate qua webhook có deadline, và quyết định blocking hay advisory mà không làm build xanh giả. PR/fork có thể chỉ chạy unit/coverage cô lập nếu policy không cho remote analysis. Khung policy rộng hơn nằm ở [Quality Gates](/docs/delivery/quality-gates).
 
 ### Các thành phần và ranh giới
 
@@ -55,17 +55,19 @@ Sau bài này, bạn có thể nối một revision Jenkins với project/branch
 
 ```mermaid
 flowchart LR
-  A[Revision branch hoặc PR] --> B[Jenkins agent chạy scanner]
-  B --> C[SonarQube analysis report]
-  C --> D[Compute Engine task]
-  D --> E{Task terminal?}
-  E -->|SUCCESS| F[Evaluate Quality Gate]
-  E -->|FAILED or CANCELED| G[Failure evidence]
-  F --> H[Webhook tới Jenkins endpoint]
-  H --> I[waitForQualityGate]
-  I --> J{Gate đạt policy?}
-  J -->|Có| K[Tiếp tục lane được phép]
-  J -->|Không| L[Chặn promotion, giữ evidence]
+  A[PR hoặc fork] --> B[Agent isolated: unit và coverage]
+  B --> C[Không remote Sonar, không credential]
+  D[Revision trusted sau merge] --> E[Agent trusted chạy scanner]
+  E --> F[SonarQube analysis report]
+  F --> G[Compute Engine task]
+  G --> H{Task terminal?}
+  H -->|SUCCESS| I[Evaluate Quality Gate]
+  H -->|FAILED or CANCELED| J[Failure evidence]
+  I --> K[Webhook tới Jenkins endpoint]
+  K --> L[waitForQualityGate]
+  L --> M{Gate đạt policy?}
+  M -->|Có| N[Tiếp tục lane được phép]
+  M -->|Không| O[Chặn promotion, giữ evidence]
 ```
 
 Repository này có renderer Mermaid trong `source.config.ts`; sơ đồ mô tả flow, không phải bằng chứng runtime integration đã chạy.
@@ -173,7 +175,7 @@ Webhook có thể bị delivery lại hoặc đến sau khi Pipeline đã timeou
 
 ### Prerequisite và Jenkinsfile
 
-Mẫu cần Pipeline: Declarative, SonarQube Scanner for Jenkins plugin, connection Jenkins tên `sonarqube-sandbox`, scanner/toolchain phù hợp, agent `trusted-analysis-linux`, một webhook SonarQube tới `$JENKINS_URL/sonarqube-webhook/`, và project/report paths đã xác minh. `withSonarQubeEnv` và `waitForQualityGate` là steps của plugin, không phải Jenkins core.
+Mẫu cần Pipeline: Declarative, SonarQube Scanner for Jenkins plugin, connection Jenkins tên `sonarqube-sandbox`, scanner/toolchain phù hợp, agent cô lập `untrusted-pr-linux` **không có credential, release cache hay network capability SonarQube**, agent `trusted-analysis-linux` dành cho revision sau merge, webhook SonarQube tới `$JENKINS_URL/sonarqube-webhook/`, và project/report paths đã xác minh. `withSonarQubeEnv` và `waitForQualityGate` là steps của plugin, không phải Jenkins core.
 
 ```groovy
 pipeline {
@@ -185,12 +187,42 @@ pipeline {
   }
 
   stages {
-    stage('Unit test, coverage and Sonar analysis') {
+    stage('PR unit test and coverage') {
+      when {
+        beforeAgent true
+        changeRequest()
+      }
+      agent { label 'untrusted-pr-linux' }
+      steps {
+        checkout scm
+        sh 'mvn -B -ntp test'
+      }
+      post {
+        always {
+          // Chỉ giữ report đã xác định; không archive source, cache hay environment dump.
+          junit allowEmptyResults: false,
+            testResults: 'target/surefire-reports/*.xml'
+          archiveArtifacts allowEmptyArchive: true,
+            artifacts: 'target/surefire-reports/**,target/site/**',
+            fingerprint: true
+          deleteDir()
+        }
+      }
+    }
+
+    stage('Trusted branch test and Sonar analysis') {
+      when {
+        beforeAgent true
+        allOf {
+          not { changeRequest() }
+          branch 'main'
+        }
+      }
       agent { label 'trusted-analysis-linux' }
       steps {
         checkout scm
         sh 'mvn -B -ntp test'
-        // Scanner đọc source và coverage report trong chính workspace này.
+        // Scanner đọc source và coverage report trong chính workspace trusted này.
         withSonarQubeEnv('sonarqube-sandbox') {
           sh 'mvn -B -ntp sonar:sonar'
         }
@@ -202,11 +234,19 @@ pipeline {
           archiveArtifacts allowEmptyArchive: true,
             artifacts: 'target/surefire-reports/**,target/site/**',
             fingerprint: true
+          deleteDir()
         }
       }
     }
 
-    stage('Quality Gate') {
+    stage('Quality Gate for trusted branch') {
+      when {
+        beforeAgent true
+        allOf {
+          not { changeRequest() }
+          branch 'main'
+        }
+      }
       options {
         timeout(time: 10, unit: 'MINUTES')
       }
@@ -230,7 +270,11 @@ pipeline {
 }
 ```
 
-`waitForQualityGate` chạy sau scanner để plugin có task context. Quality Gate stage không cần checkout; nó chờ callback plugin trên controller. Unit test và scanner được giữ trong cùng stage/agent workspace để scanner đọc coverage report của revision vừa test. Protected release stage tự checkout revision selected by SCM vì `agent none` và stage agent có thể dùng workspace khác. Không chuyển source từ MR/fork vào release workspace qua `stash`/`unstash`.
+`beforeAgent true` làm `changeRequest()` được xét trước khi Jenkins cấp agent: PR/fork chỉ checkout và chạy Maven trên `untrusted-pr-linux`, không có `withSonarQubeEnv`, scanner, remote server query, trusted cache hay credential binding. `Trusted branch test and Sonar analysis` và `Quality Gate for trusted branch` dùng cùng điều kiện nên PR bị skip không thể gọi `waitForQualityGate` thiếu task context.
+
+`branch 'main'` **không tự chứng minh trust**: điều kiện này chỉ đủ khi Multibranch source, branch protection và merge queue/required review của SCM đảm bảo `main` là revision đã được merge theo policy; direct push, job parameter override và unprotected tag phải bị cấm hoặc dùng trusted job riêng. Nếu tổ chức cần remote PR analysis, tách một job/agent/network/credential scope riêng đã được security review; không nới mẫu này bằng cách bỏ `changeRequest()`.
+
+Scanner đọc source và coverage report trong chính workspace `trusted-analysis-linux`. Quality Gate stage không cần checkout; nó chờ callback plugin trên controller. Cả post block chỉ archive report explicit rồi `deleteDir()` để dọn workspace; không archive source, cache hoặc environment. Protected release stage tự checkout revision selected by SCM vì `agent none` và stage agent có thể dùng workspace khác. Không chuyển source từ MR/fork vào release workspace qua `stash`/`unstash`.
 
 ### Timeout, abort, retry và unstable
 
@@ -242,9 +286,9 @@ Không dùng `retry` quanh scanner blocking, `waitForQualityGate`, test hoặc r
 
 ### PR, branch bảo vệ và trust
 
-PR có thể chạy analysis không secret trên agent cô lập nếu scanner/tooling không đòi capability release. Scanner token có quyền write/project vẫn là secret; chỉ cấp nó cho source trust tier đã được policy phê duyệt, không cho fork code tùy ý. Nếu không có một model token/agent/network an toàn cho fork, không chạy remote analysis từ fork; dùng static checks không secret hoặc một workflow sandbox khác.
+Mẫu này chọn **không chạy remote SonarQube analysis cho PR/fork**: PR chỉ có unit/coverage trên agent cô lập và không có `withSonarQubeEnv`, nên không có Quality Gate remote để claim là đã phân tích. Scanner token có quyền write/project vẫn là secret; chỉ cấp nó cho source trust tier đã được policy phê duyệt, không cho fork code tùy ý. Nếu cần remote PR analysis, dùng job/agent/network/credential scope tách biệt đã qua security review; không tái sử dụng `trusted-analysis-linux` hay token branch sau merge.
 
-Protected branch sau merge chạy gate blocking, rồi mới vào release lane. `branch 'main'` trong Jenkinsfile chỉ là điều kiện Multibranch; nó không tự chứng minh SCM branch protection hay source trust. Kết hợp SCM required review/status, Jenkins authorization, agent isolation, credential scope và artifact provenance. Không để PR pass Quality Gate cấp publish/sign/deploy capability.
+Protected branch sau merge chạy gate blocking, rồi mới vào release lane. `branch 'main'` trong Jenkinsfile chỉ là điều kiện Multibranch; nó chỉ an toàn khi SCM branch protection/merge queue và Jenkins authorization đã được kiểm chứng. Kết hợp SCM required review/status, Jenkins authorization, agent isolation, credential scope và artifact provenance. Không để PR unit result hay PR Quality Gate (nếu có workflow tách riêng) cấp publish/sign/deploy capability.
 
 ## Evidence, retention và vận hành
 
@@ -294,14 +338,29 @@ cat > "$LAB_ROOT/Jenkinsfile.fixture" <<'EOF'
 pipeline {
   agent none
   stages {
-    stage('Analysis') {
+    stage('PR unit') {
+      when { beforeAgent true; changeRequest() }
+      agent { label 'untrusted-pr-linux' }
+      steps { checkout scm; sh 'mvn -B -ntp test' }
+    }
+    stage('Trusted analysis') {
+      when {
+        beforeAgent true
+        allOf { not { changeRequest() }; branch 'main' }
+      }
+      agent { label 'trusted-analysis-linux' }
       steps {
+        checkout scm
         withSonarQubeEnv('sonarqube-sandbox') {
           sh 'mvn -B -ntp sonar:sonar'
         }
       }
     }
     stage('Gate') {
+      when {
+        beforeAgent true
+        allOf { not { changeRequest() }; branch 'main' }
+      }
       options { timeout(time: 10, unit: 'MINUTES') }
       steps { waitForQualityGate abortPipeline: true }
     }
@@ -325,6 +384,10 @@ assert success['task']['status'] == 'SUCCESS'
 assert passed['projectStatus']['status'] == 'OK'
 assert failed['projectStatus']['status'] == 'ERROR'
 assert "withSonarQubeEnv('sonarqube-sandbox')" in jenkinsfile
+assert "agent { label 'untrusted-pr-linux' }" in jenkinsfile
+assert "agent { label 'trusted-analysis-linux' }" in jenkinsfile
+assert jenkinsfile.count('beforeAgent true') == 3
+assert jenkinsfile.count('changeRequest()') == 3
 assert 'waitForQualityGate abortPipeline: true' in jenkinsfile
 assert 'timeout(time: 10' in jenkinsfile
 print('pending: waiting (simulated)')
@@ -378,7 +441,7 @@ esac
 | Scanner exit `0` nhưng Gate chưa có | CE task reference/status, project key, webhook delivery, plugin/server version | Chờ `waitForQualityGate` trong timeout; không suy diễn scanner pass là gate pass. |
 | `waitForQualityGate` timeout | `$JENKINS_URL/sonarqube-webhook/`, trailing slash, DNS/proxy/TLS, callback response | Sửa callback trên sandbox, giữ build timeout/failure; không bypass gate. |
 | Gate fail nhưng release vẫn chạy | `abortPipeline`, `catchError`, `when`, build/stage result và policy | Để exception chặn flow; tách advisory khỏi required gate. |
-| PR analysis đè branch result | Project key, PR/branch properties, source/base SHA và scanner capability | Sửa mapping theo supported integration; không dùng property không được version support. |
+| PR workflow tách riêng đè branch result | Project key, PR/branch properties, source/base SHA, agent/credential scope và scanner capability | Sửa mapping theo supported integration; giữ workflow remote PR tách trusted branch, hoặc để mẫu này chỉ chạy unit/coverage PR. |
 | CE `FAILED`/`CANCELED` | Task metadata, server health/log đã redact, capacity và version change | Ghi inconclusive/failure, sửa nguyên nhân rồi rerun mới; không làm xanh lần cũ. |
 | Report/log có secret hoặc source nhạy cảm | Archive glob, scanner debug, environment dump và credential scope | Dừng publish, redact/rotate theo incident policy, chỉ giữ evidence tối thiểu. |
 
@@ -388,11 +451,13 @@ esac
 - [ ] SonarQube Scanner for Jenkins, Pipeline, scanner/build tool, JDK/Node và agent image có version pin, advisory review và compatibility test.
 - [ ] Project key ổn định; branch/PR/source/base revision mapping dùng property/integration được version hiện hành support.
 - [ ] Token nằm trong Jenkins credential/configuration scope hẹp, có owner/rotation/revoke; không ở Jenkinsfile, argv, URL, log, artifact hay fixture.
+- [ ] `changeRequest()` có `beforeAgent true` chọn agent cô lập không credential/cache/release; mọi `withSonarQubeEnv`, scanner và remote SonarQube query chỉ ở trusted branch/job condition đã review.
+- [ ] `branch 'main'`/tag/merge-queue condition được đối chiếu với branch protection, source trigger và Jenkins authorization; condition tên branch một mình không được coi là trust proof.
 - [ ] Scanner command, test và coverage report chạy theo toolchain thật; scanner exit code không bị gọi sai là Quality Gate pass.
 - [ ] SonarQube webhook trỏ đúng `$JENKINS_URL/sonarqube-webhook/`, có TLS/proxy/delivery verification và secret/HMAC khi supported/configured.
 - [ ] `waitForQualityGate abortPipeline: true` chạy sau scanner, trong `timeout`; timeout, abort, CE fail/cancel và gate fail không biến thành success.
 - [ ] Retry không che test/scanner/gate/release failure; duplicate delivery/rebuild không tạo side effect release trùng.
-- [ ] PR/fork không tin cậy không nhận capability release; protected branch sau merge mới vào lane blocking/release đã tách trust.
+- [ ] PR/fork không tin cậy không nhận capability release; mẫu này chỉ chạy unit/coverage PR và chỉ protected branch sau merge mới vào lane remote gate/release đã tách trust.
 - [ ] Evidence có revision/project/task/gate/policy/plugin reference và retention/ACL; report/archive không chứa secret hay full workspace không cần thiết.
 - [ ] Lab chỉ tạo JSON/Jenkinsfile fixture local với marker/prefix/direct-parent guard; không gọi SonarQube/Jenkins/webhook thật.
 
