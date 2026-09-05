@@ -380,7 +380,7 @@ DIGEST="$(cat "$LAB_ROOT/app/release.digest")"
 grep -Fqx "  digest: $DIGEST" \
   "$LAB_ROOT/config/apps/catalog-api/overlays/staging/values.yaml"
 git -C "$LAB_ROOT/app" log -1 --format='%H %s'
-git -C "$LAB_ROOT/config" diff --check HEAD~1 HEAD
+git -C "$LAB_ROOT/config" diff-tree --check --root HEAD
 printf '%s\n' 'Static fixture checks passed; no controller or cluster was contacted.'
 ```
 
@@ -388,7 +388,7 @@ Nếu đã có kind hoặc minikube **sandbox riêng**, dùng nó chỉ để ch
 
 ### Evidence mong đợi và cleanup có guard
 
-Evidence static mong đợi gồm đường dẫn lab, hai commit SHA local, digest giống nhau ở app/config và `git diff --check` pass. Nó chứng minh fixture/guard, không chứng minh deployment.
+Evidence static mong đợi gồm đường dẫn lab, hai commit SHA local, digest giống nhau ở app/config và `git diff-tree --check --root HEAD` pass cho commit gốc của config repo. Nó chứng minh fixture/guard, không chứng minh deployment.
 
 Chỉ cleanup sau khi đã đọc evidence. Guard kiểm parent, prefix, marker và child trực tiếp trước khi xóa directory mà lab vừa tạo.
 
