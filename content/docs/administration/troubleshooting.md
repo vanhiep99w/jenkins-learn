@@ -68,34 +68,34 @@ Dùng flow này cho mỗi incident. Một nhánh chỉ dẫn đến **giả thuy
 
 ```text
 ┌───────────────────────────────────┐
-│ Triệu chứng + SEV + incident owner │
+│ Triệu chứng + SEV + incident owner│
 └─────────────────┬─────────────────┘
                   ▼
 ┌───────────────────────────────────┐
-│ Phạm vi: 1 build, 1 pool, hay toàn │
-│ controller? Ghi timeline UTC.      │
+│ Phạm vi: 1 build, 1 pool, hay toàn│
+│ controller? Ghi timeline UTC.     │
 └─────────────────┬─────────────────┘
                   ▼
         ┌─────────────────────┐
         │ Build có executor?  │
-        └───────┬───────┬─────┘
-            Không│       │Có
-                 ▼       ▼
+        └───────┬────────┬────┘
+           Không│        │Có
+                ▼        ▼
        ┌─────────────┐  ┌─────────────────────────┐
-       │ Queue:      │  │ Stage/step có tiến triển?│
-       │ label/node/ │  └───────┬───────────┬─────┘
+       │ Queue:      │  │Stage/step có tiến triển?│
+       │ label/node/ │  └─────────┬───────────┬───┘
        │ executor?   │       Không│           │Có
        └──────┬──────┘            ▼           ▼
-              │          ┌──────────────┐  Kiểm tra lỗi
-              ▼          │ input/lock/  │  nghiệp vụ/log job
+              │           ┌──────────────┐  Kiểm tra lỗi
+              ▼           │ input/lock/  │  nghiệp vụ/log job
       Thu evidence        │ timeout/I-O? │
       → giả thuyết        └──────┬───────┘
-              │                 │
-              └────────┬────────┘
+              │                  │
+              └────────┬─────────┘
                        ▼
       ┌──────────────────────────────────┐
-      │ Chỉ thay đổi nhỏ, có rollback     │
-      │ → xác minh metric/log/build mới   │
+      │ Chỉ thay đổi nhỏ, có rollback    │
+      │ → xác minh metric/log/build mới  │
       └──────────────────────────────────┘
                        │
                        ▼

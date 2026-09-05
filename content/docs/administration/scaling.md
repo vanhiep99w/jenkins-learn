@@ -55,16 +55,16 @@ Trước thay đổi, ghi baseline trong một cửa sổ đại diện gồm pe
                                       │
                                       │ webhook, clone, pull/push
                                       ▼
-┌───────────────┐             ┌─────────────────────────┐
-│ Người dùng/API │ ──────────► │ Jenkins controller       │
+┌───────────────┐             ┌──────────────────────────┐
+│ Người dùng/API│ ──────────► │ Jenkins controller       │
 └───────────────┘             │ queue, config, metadata  │
                               │ một writer JENKINS_HOME  │
                               └───────┬─────────┬────────┘
                                       │         │ backup đã kiểm chứng
                          Remoting/API │         ▼
                                       │   ┌───────────────┐
-                                      │   │ Backup/offsite │
-                                      │   │ restore drill  │
+                                      │   │ Backup/offsite│
+                                      │   │ restore drill │
                                       │   └───────────────┘
                     ┌─────────────────┼──────────────────┐
                     ▼                 ▼                  ▼

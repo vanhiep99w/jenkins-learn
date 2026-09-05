@@ -56,10 +56,10 @@ Quy ước thực tế là tách automation thành hai đường. **Read-only** 
 
 ```text
 ┌───────────────────┐   HTTPS, auth, timeout    ┌──────────────────────┐
-│ Script / CLI user │ ─────────────────────────► │ Reverse proxy + TLS  │
-└───────────────────┘                            └──────────┬───────────┘
-          ▲                                                 │ private HTTP(S)
-          │ status, JSON, CLI output                        ▼
+│ Script / CLI user │ ─────────────────────────►│ Reverse proxy + TLS  │
+└───────────────────┘                           └──────────┬───────────┘
+          ▲                                                │ private HTTP(S)
+          │ status, JSON, CLI output                       ▼
           │                                      ┌──────────────────────┐
           └───────────────────────────────────── │ Jenkins controller   │
                                                  │ authz + crumb + audit│
