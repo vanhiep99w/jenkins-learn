@@ -108,25 +108,48 @@ pipeline {
   }
 
   stages {
-    stage('Build and test without registry write') {
+    stage('Build, test, scan, and transfer exact image') {
       agent { label 'linux && untrusted-container-builder' }
       steps {
         checkout scm
         sh '''#!/bin/sh
           set -eu
-          git rev-parse --verify HEAD
+          SOURCE_REVISION="$(git rev-parse --verify HEAD)"
+          SOURCE_SHORT="$(git rev-parse --short=12 HEAD)"
+          BUILD_IMAGE="catalog-ci:${BUILD_NUMBER}"
+          export BUILD_IMAGE
           test -f Dockerfile
           test -f .dockerignore
           docker buildx version
-          docker buildx build --load --pull=false \
-            --tag catalog-ci:${BUILD_NUMBER} .
-          ./ci/test-container catalog-ci:${BUILD_NUMBER}
-          ./ci/scan-container catalog-ci:${BUILD_NUMBER} --output reports/scan.json
+          docker buildx build --load --pull=false --tag "$BUILD_IMAGE" .
+          ./ci/test-container "$BUILD_IMAGE"
+          mkdir -p reports transfer release
+          ./ci/scan-container "$BUILD_IMAGE" --output reports/scan.json
+          ./ci/generate-sbom "$BUILD_IMAGE" --output reports/sbom.cdx.json
+          IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$BUILD_IMAGE")"
+          case "$IMAGE_ID" in sha256:[0-9a-f][0-9a-f]*) ;; *) exit 1 ;; esac
+          export SOURCE_REVISION SOURCE_SHORT BUILD_IMAGE IMAGE_ID
+          docker image save --output transfer/catalog-image.tar "$BUILD_IMAGE"
+          sha256sum transfer/catalog-image.tar > transfer/catalog-image.tar.sha256
+          python3 - <<'PY'
+import json
+import os
+with open('release/tested-image.json', 'w', encoding='utf-8') as output:
+    json.dump({
+        'sourceRevision': os.environ['SOURCE_REVISION'],
+        'sourceShort': os.environ['SOURCE_SHORT'],
+        'buildImage': os.environ['BUILD_IMAGE'],
+        'imageId': os.environ['IMAGE_ID'],
+    }, output, sort_keys=True)
+PY
         '''
+        stash name: 'tested-oci-image',
+          includes: 'transfer/catalog-image.tar,transfer/catalog-image.tar.sha256,release/tested-image.json,reports/scan.json,reports/sbom.cdx.json',
+          useDefaultExcludes: true
       }
     }
 
-    stage('Push immutable candidate') {
+    stage('Push exact tested image') {
       when {
         beforeAgent true
         allOf {
@@ -136,7 +159,39 @@ pipeline {
       }
       agent { label 'linux && trusted-release-builder' }
       steps {
-        checkout scm
+        unstash 'tested-oci-image'
+        sh '''#!/bin/sh
+          set -eu
+          sha256sum --check transfer/catalog-image.tar.sha256
+          docker image load --input transfer/catalog-image.tar
+          SOURCE_SHORT="$(python3 - <<'PY'
+import json
+value = json.load(open('release/tested-image.json', encoding='utf-8'))['sourceShort']
+assert len(value) == 12 and all(c in '0123456789abcdef' for c in value)
+print(value)
+PY
+)"
+          BUILD_IMAGE="$(python3 - <<'PY'
+import json
+value = json.load(open('release/tested-image.json', encoding='utf-8'))['buildImage']
+assert value.startswith('catalog-ci:')
+print(value)
+PY
+)"
+          EXPECTED_IMAGE_ID="$(python3 - <<'PY'
+import json
+value = json.load(open('release/tested-image.json', encoding='utf-8'))['imageId']
+assert value.startswith('sha256:')
+print(value)
+PY
+)"
+          ACTUAL_IMAGE_ID="$(docker image inspect --format '{{.Id}}' "$BUILD_IMAGE")"
+          test "$ACTUAL_IMAGE_ID" = "$EXPECTED_IMAGE_ID"
+          IMAGE_TAG="${REGISTRY_HOST}/${IMAGE_REPOSITORY}:git-${SOURCE_SHORT}-build-${BUILD_NUMBER}"
+          docker image tag "$EXPECTED_IMAGE_ID" "$IMAGE_TAG"
+          printf '%s\n' "$EXPECTED_IMAGE_ID" > release/expected-image-id.txt
+          printf '%s\n' "$IMAGE_TAG" > release/image-tag.txt
+        '''
         withCredentials([
           usernamePassword(
             credentialsId: 'registry-push-catalog-candidate',
@@ -147,21 +202,23 @@ pipeline {
           sh '''#!/bin/sh
             set -eu
             set +x
-            SHORT_SHA="$(git rev-parse --short=12 HEAD)"
-            IMAGE_TAG="${REGISTRY_HOST}/${IMAGE_REPOSITORY}:git-${SHORT_SHA}-build-${BUILD_NUMBER}"
+            EXPECTED_IMAGE_ID="$(cat release/expected-image-id.txt)"
+            IMAGE_TAG="$(cat release/image-tag.txt)"
+            case "$EXPECTED_IMAGE_ID" in sha256:[0-9a-f][0-9a-f]*) ;; *) exit 1 ;; esac
+            case "$IMAGE_TAG" in "${REGISTRY_HOST}/${IMAGE_REPOSITORY}":git-*) ;; *) exit 1 ;; esac
+            test "$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" = "$EXPECTED_IMAGE_ID"
             printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY_HOST" \
               --username "$REGISTRY_USER" --password-stdin
             trap 'docker logout "$REGISTRY_HOST" >/dev/null 2>&1 || true' EXIT
-            docker buildx build --pull=false --push \
-              --provenance=mode=max --sbom=true \
-              --tag "$IMAGE_TAG" .
+            docker push "$IMAGE_TAG"
             DIGEST="$(docker buildx imagetools inspect "$IMAGE_TAG" --format '{{.Digest}}')"
             case "$DIGEST" in sha256:[0-9a-f][0-9a-f]*) ;; *) exit 1 ;; esac
+            mkdir -p release
             printf '%s@%s\n' "${REGISTRY_HOST}/${IMAGE_REPOSITORY}" "$DIGEST" \
               > release/image-digest.txt
           '''
         }
-        archiveArtifacts artifacts: 'release/image-digest.txt',
+        archiveArtifacts artifacts: 'release/image-digest.txt,release/tested-image.json,reports/scan.json,reports/sbom.cdx.json',
           allowEmptyArchive: false, fingerprint: true
       }
     }
@@ -169,7 +226,7 @@ pipeline {
 }
 ```
 
-Điều kiện `main` chỉ hữu ích khi đây là Multibranch Pipeline có SCM source và branch protection đã được xác minh. Hành vi PR khác nhau theo SCM integration; không cấp release credential chỉ vì tồn tại biểu thức `when`. `archiveArtifacts` chỉ chứa digest reference, không chứa Docker config, token hay toàn workspace. Đọc [Credentials trong Pipeline](/docs/pipelines/credentials) và [Build Artifacts](/docs/jobs/artifacts) trước khi đổi scope hay retention.
+Stage đầu build một lần, test/scan chính image đã load và stash tar, checksum, image ID, source revision cùng evidence. Stage release không `checkout scm` và không gọi `docker build`; nó verify checksum, load đúng tar, so image ID với metadata rồi mới tag/push. Digest registry được lấy sau push của image ID đã test. Điều kiện `main` chỉ hữu ích khi đây là Multibranch Pipeline có SCM source và branch protection đã được xác minh. Hành vi PR khác nhau theo SCM integration; không cấp release credential chỉ vì tồn tại biểu thức `when`. `archiveArtifacts` chỉ chứa digest/evidence hẹp, không chứa Docker config, token hay toàn workspace. `stash` phù hợp artifact nhỏ; với tar lớn, thay bằng Artifact Manager hoặc kho transfer đã phê duyệt, luôn verify checksum và image ID trước push. Mẫu `--load` này là single-platform. Multi-platform cần output OCI layout/index từ builder, OCI-aware transfer/copy và verification index/manifest subject tương ứng; không được thay bằng rebuild ở release stage. Đọc [Credentials trong Pipeline](/docs/pipelines/credentials) và [Build Artifacts](/docs/jobs/artifacts) trước khi đổi scope hay retention.
 
 ## BuildKit input cache và supply chain
 

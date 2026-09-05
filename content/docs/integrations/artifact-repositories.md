@@ -128,13 +128,13 @@ Không dùng alias hoặc tag di động làm release input. Retention cũng kh�
 
 ### Giả định plugin và contract
 
-Ví dụ dùng Jenkins LTS, Pipeline: Declarative, Git, JUnit, Pipeline: Basic Steps và **HTTP Request Plugin** đã được đội platform pin/review. HTTP Request Plugin phải hỗ trợ `authentication`, `uploadFile`, `validResponseCodes` và TLS verification trên version đang chạy; kiểm tra lại bằng **Pipeline Syntax → Snippet Generator**. `timestamps()` cần Timestamper.
+Ví dụ dùng Jenkins LTS, Pipeline: Declarative, Git, JUnit, Pipeline: Basic Steps, Python 3 trên agent và **HTTP Request Plugin** đã được đội platform pin/review. HTTP Request Plugin phải hỗ trợ `authentication`, `uploadFile`, `outputFile`, `validResponseCodes` và TLS verification trên version đang chạy; kiểm tra lại bằng **Pipeline Syntax → Snippet Generator**. `timestamps()` cần Timestamper.
 
-Pipeline giả định stage package đã tạo đúng ba file trong `dist/release/`: `widget-1.4.0.tgz`, `widget-1.4.0.tgz.sha256` và `build-metadata.json`. Đây là contract output của dự án, không phải lệnh build chung cho mọi ngôn ngữ. Agent release đã có CA/network route tới repository; URL `.invalid` trong mẫu chỉ biểu diễn endpoint sandbox và không phải destination để chạy.
+Pipeline giả định stage package đã tạo đúng ba file trong `dist/release/`: `widget-1.4.0.tgz`, `widget-1.4.0.tgz.sha256` và `build-metadata.json`. Sidecar checksum dùng tên file `widget-1.4.0.tgz` để `sha256sum -c` xác minh từ cùng directory. Metadata là JSON có `subject.name`, `subject.version`, `subject.sha256` lần lượt bằng `widget-1.4.0.tgz`, `1.4.0` và SHA-256 của package; nó có thể thêm source revision/toolchain theo policy. Đây là contract output của dự án, không phải lệnh build chung cho mọi ngôn ngữ. Agent release đã có CA/network route tới repository; URL `.invalid` trong mẫu chỉ biểu diễn endpoint sandbox và không phải destination để chạy.
 
 ### Jenkinsfile dùng credential-aware step
 
-Snippet archive evidence trước cleanup và chỉ publish khi Multibranch đang build `main`, không phải change request. `httpRequest(authentication: ...)` để plugin lấy credential trực tiếp từ Jenkins store; Jenkinsfile không mở secret vào shell/Groovy.
+Snippet archive evidence trước cleanup và chỉ publish khi Multibranch đang build `main`, không phải change request. Nó publish package, sidecar SHA-256 và metadata JSON vào ba path version cố định, sau đó tải lại cả ba để verify. `httpRequest(authentication: ...)` để plugin lấy credential trực tiếp từ Jenkins store; Jenkinsfile không mở secret vào shell/Groovy.
 
 ```groovy
 pipeline {
@@ -153,7 +153,10 @@ pipeline {
   environment {
     ARTIFACT_FILE = 'dist/release/widget-1.4.0.tgz'
     ARTIFACT_SHA256 = 'dist/release/widget-1.4.0.tgz.sha256'
-    REPOSITORY_URL = 'https://repository.example.invalid/generic-releases/acme/widget/1.4.0/widget-1.4.0.tgz'
+    ARTIFACT_METADATA = 'dist/release/build-metadata.json'
+    REPOSITORY_ARTIFACT_URL = 'https://repository.example.invalid/generic-releases/acme/widget/1.4.0/widget-1.4.0.tgz'
+    REPOSITORY_SHA256_URL = 'https://repository.example.invalid/generic-releases/acme/widget/1.4.0/widget-1.4.0.tgz.sha256'
+    REPOSITORY_METADATA_URL = 'https://repository.example.invalid/generic-releases/acme/widget/1.4.0/build-metadata.json'
   }
 
   stages {
@@ -167,8 +170,26 @@ pipeline {
           ./ci/test-and-package
           test -s "$ARTIFACT_FILE"
           test -s "$ARTIFACT_SHA256"
-          test -s dist/release/build-metadata.json
+          test -s "$ARTIFACT_METADATA"
           (cd dist/release && sha256sum -c widget-1.4.0.tgz.sha256)
+          python3 - "$ARTIFACT_FILE" "$ARTIFACT_SHA256" "$ARTIFACT_METADATA" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+artifact, checksum_file, metadata_file = map(Path, sys.argv[1:])
+expected = checksum_file.read_text(encoding='utf-8').split()[0]
+actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
+subject = metadata.get('subject', {})
+assert expected == actual
+assert subject == {
+    'name': artifact.name,
+    'version': '1.4.0',
+    'sha256': expected,
+}
+PY
         '''
         stash includes: 'dist/release/widget-1.4.0.tgz,dist/release/widget-1.4.0.tgz.sha256,dist/release/build-metadata.json',
           name: 'verified-release'
@@ -198,7 +219,7 @@ pipeline {
           (cd dist/release && sha256sum -c widget-1.4.0.tgz.sha256)
         '''
         script {
-          def response = httpRequest(
+          def artifactResponse = httpRequest(
             authentication: 'artifact-release-publisher',
             consoleLogResponseBody: false,
             contentType: 'APPLICATION_OCTETSTREAM',
@@ -206,12 +227,91 @@ pipeline {
             ignoreSslErrors: false,
             timeout: 30,
             uploadFile: env.ARTIFACT_FILE,
-            url: env.REPOSITORY_URL,
+            url: env.REPOSITORY_ARTIFACT_URL,
             validResponseCodes: '200:201,204'
           )
-          echo "Đã nhận HTTP status ${response.status} cho path release bất biến."
+          def checksumResponse = httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            contentType: 'TEXT_PLAIN',
+            httpMode: 'PUT',
+            ignoreSslErrors: false,
+            timeout: 30,
+            uploadFile: env.ARTIFACT_SHA256,
+            url: env.REPOSITORY_SHA256_URL,
+            validResponseCodes: '200:201,204'
+          )
+          def metadataResponse = httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            contentType: 'APPLICATION_JSON',
+            httpMode: 'PUT',
+            ignoreSslErrors: false,
+            timeout: 30,
+            uploadFile: env.ARTIFACT_METADATA,
+            url: env.REPOSITORY_METADATA_URL,
+            validResponseCodes: '200:201,204'
+          )
+          echo "Đã nhận HTTP status package=${artifactResponse.status}, checksum=${checksumResponse.status}, metadata=${metadataResponse.status}."
+
+          sh 'mkdir -p verified-release'
+          httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            httpMode: 'GET',
+            ignoreSslErrors: false,
+            outputFile: 'verified-release/widget-1.4.0.tgz',
+            timeout: 30,
+            url: env.REPOSITORY_ARTIFACT_URL,
+            validResponseCodes: '200'
+          )
+          httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            httpMode: 'GET',
+            ignoreSslErrors: false,
+            outputFile: 'verified-release/widget-1.4.0.tgz.sha256',
+            timeout: 30,
+            url: env.REPOSITORY_SHA256_URL,
+            validResponseCodes: '200'
+          )
+          httpRequest(
+            authentication: 'artifact-release-publisher',
+            consoleLogResponseBody: false,
+            httpMode: 'GET',
+            ignoreSslErrors: false,
+            outputFile: 'verified-release/build-metadata.json',
+            timeout: 30,
+            url: env.REPOSITORY_METADATA_URL,
+            validResponseCodes: '200'
+          )
         }
-        archiveArtifacts artifacts: 'dist/release/widget-1.4.0.tgz.sha256,dist/release/build-metadata.json',
+        sh '''#!/usr/bin/env sh
+          set -eu
+          (cd verified-release && sha256sum -c widget-1.4.0.tgz.sha256)
+          cmp -s "$ARTIFACT_SHA256" verified-release/widget-1.4.0.tgz.sha256
+          cmp -s "$ARTIFACT_METADATA" verified-release/build-metadata.json
+          python3 - verified-release/widget-1.4.0.tgz \
+            verified-release/widget-1.4.0.tgz.sha256 \
+            verified-release/build-metadata.json <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+artifact, checksum_file, metadata_file = map(Path, sys.argv[1:])
+expected = checksum_file.read_text(encoding='utf-8').split()[0]
+actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
+assert expected == actual
+assert metadata['subject'] == {
+    'name': artifact.name,
+    'version': '1.4.0',
+    'sha256': expected,
+}
+PY
+        '''
+        archiveArtifacts artifacts: 'dist/release/widget-1.4.0.tgz.sha256,dist/release/build-metadata.json,verified-release/widget-1.4.0.tgz.sha256,verified-release/build-metadata.json',
           allowEmptyArchive: false, fingerprint: true
       }
       post {
@@ -222,15 +322,15 @@ pipeline {
 }
 ```
 
-`authentication` là credential ID, không phải token. `consoleLogResponseBody: false` giảm nguy cơ response nhạy cảm đi vào console. Step không thay policy repository: phải cấu hình server để từ chối ghi đè release, giới hạn service identity ở path release và ghi audit event. Với Maven/npm/OCI, thay stage publish bằng client/protocol tương ứng, giữ nguyên branch gate, identity least privilege, checksum/digest verification và evidence.
+`authentication` là credential ID, không phải token. `consoleLogResponseBody: false` giảm nguy cơ response nhạy cảm đi vào console. Cùng publisher identity trong mẫu chỉ cần `PUT` và `GET` trên ba path của release để read-after-write verification; nó không cần quyền xóa hay quản trị repository. Ba GET tải package, checksum và metadata, rồi Pipeline kiểm SHA-256 và so body metadata với contract subject/version/digest. Step không thay policy repository: phải cấu hình server để từ chối ghi đè release, giới hạn service identity ở path release và ghi audit event. Với Maven/npm/OCI, thay stage publish bằng client/protocol tương ứng, giữ nguyên branch gate, identity least privilege, checksum/digest verification và evidence.
 
 ### Idempotency và failure
 
 Không bọc `httpRequest` trong `retry` mặc định. Nếu timeout xảy ra sau khi server nhận bytes, retry mù có thể tạo conflict hoặc overwrite tùy backend. Quy trình an toàn là:
 
-1. dùng API/client do repository hỗ trợ để đọc metadata của version/path;
-2. đối chiếu size và SHA-256 với artifact của build;
-3. chỉ đánh dấu idempotent khi metadata chứng minh cùng bytes;
+1. dùng API/client do repository hỗ trợ để đọc package, checksum sidecar và metadata của version/path;
+2. đối chiếu size và SHA-256 với artifact của build, rồi xác minh subject/version/digest metadata;
+3. chỉ đánh dấu idempotent khi cả ba object chứng minh cùng bytes và cùng identity;
 4. nếu khác hoặc không đọc được, fail release và điều tra audit event.
 
 `PUT` không tự mang nghĩa immutable trên mọi server. Object storage có thể cần conditional request/versioning/object lock; Nexus/Artifactory cần policy chặn redeploy; Maven/npm/OCI có rule format riêng. Không suy diễn một response HTTP xanh là policy release đã đúng.
@@ -278,9 +378,12 @@ CANDIDATE_DIR="$REPOSITORY/candidates"
 mkdir -p "$WORKSPACE/dist/release" "$RELEASE_DIR" "$CANDIDATE_DIR"
 
 printf 'widget release built from synthetic local fixture\n' > "$WORKSPACE/dist/release/widget-1.4.0.tgz"
-sha256sum "$WORKSPACE/dist/release/widget-1.4.0.tgz" \
-  > "$WORKSPACE/dist/release/widget-1.4.0.tgz.sha256"
-printf '%s\n' '{"source":"local-fixture","version":"1.4.0"}' \
+(
+  cd "$WORKSPACE/dist/release"
+  sha256sum widget-1.4.0.tgz > widget-1.4.0.tgz.sha256
+)
+LAB_SHA="$(awk '{print $1}' "$WORKSPACE/dist/release/widget-1.4.0.tgz.sha256")"
+printf '{"subject":{"name":"widget-1.4.0.tgz","version":"1.4.0","sha256":"%s"},"source":"local-fixture"}\n' "$LAB_SHA" \
   > "$WORKSPACE/dist/release/build-metadata.json"
 
 publish_immutable() {
@@ -328,7 +431,17 @@ test "$(cat "$LAB_MARKER")" = 'jenkins-artifact-repository-lab-v1'
 SOURCE_SHA="$(awk '{print $1}' "$WORKSPACE/dist/release/widget-1.4.0.tgz.sha256")"
 REPOSITORY_SHA="$(sha256sum "$RELEASE_DIR/widget-1.4.0.tgz" | awk '{print $1}')"
 test "$SOURCE_SHA" = "$REPOSITORY_SHA"
-test -f "$RELEASE_DIR/build-metadata.json"
+python3 - "$RELEASE_DIR/build-metadata.json" "$REPOSITORY_SHA" <<'PY'
+import json
+from pathlib import Path
+import sys
+metadata = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+assert metadata['subject'] == {
+    'name': 'widget-1.4.0.tgz',
+    'version': '1.4.0',
+    'sha256': sys.argv[2],
+}
+PY
 test ! -e "$CANDIDATE_DIR/widget-1.4.1-rc.2.tgz"
 printf 'checksum and retention simulation: PASS\n'
 
