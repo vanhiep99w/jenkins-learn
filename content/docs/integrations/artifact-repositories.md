@@ -322,7 +322,7 @@ PY
 }
 ```
 
-`authentication` là credential ID, không phải token. `consoleLogResponseBody: false` giảm nguy cơ response nhạy cảm đi vào console. Cùng publisher identity trong mẫu chỉ cần `PUT` và `GET` trên ba path của release để read-after-write verification; nó không cần quyền xóa hay quản trị repository. Ba GET tải package, checksum và metadata, rồi Pipeline kiểm SHA-256 và so body metadata với contract subject/version/digest. Step không thay policy repository: phải cấu hình server để từ chối ghi đè release, giới hạn service identity ở path release và ghi audit event. Với Maven/npm/OCI, thay stage publish bằng client/protocol tương ứng, giữ nguyên branch gate, identity least privilege, checksum/digest verification và evidence.
+`authentication` là credential ID, không phải token. `consoleLogResponseBody: false` giảm nguy cơ response nhạy cảm đi vào console. Cùng publisher identity trong mẫu chỉ cần `PUT` và `GET` trên ba path của release để read-after-write verification; nó không cần quyền xóa hay quản trị repository. Ba GET tải package, checksum và metadata, rồi Pipeline kiểm SHA-256 và so body metadata với contract subject/version/digest. Nếu một PUT hoặc GET thất bại, release candidate không được promotion hay deploy; không xóa hoặc upload đè package để “sửa” trạng thái dở dang, mà điều tra audit event và metadata trước. Step không thay policy repository: phải cấu hình server để từ chối ghi đè release, giới hạn service identity ở path release và ghi audit event. Với Maven/npm/OCI, thay stage publish bằng client/protocol tương ứng, giữ nguyên branch gate, identity least privilege, checksum/digest verification và evidence.
 
 ### Idempotency và failure
 
