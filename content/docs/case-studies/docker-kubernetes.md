@@ -82,24 +82,24 @@ Sau case study này, bạn có thể:
 
 ### Thành phần và ranh giới
 
-Controller chỉ điều phối queue, trạng thái và credential policy. Build chạy trên agent `linux && image-builder && trusted-release`; deploy chạy trên agent `linux && kubectl && trusted-release`. Hai label này không phải ACL, nhưng giúp không route stage release sang controller hoặc pool pull request.
+Controller chỉ điều phối queue, trạng thái và credential policy. Build/scan chạy trên agent `linux && image-builder` không nhận credential publish; push/deploy chạy trên agent `trusted-release` có label tool tương ứng. Labels không phải ACL, nhưng giúp không route stage release sang controller hoặc pool pull request.
 
 ```text
 Git repository ──commit──> Jenkins controller
                               │ điều phối, không build
               ┌───────────────┴────────────────┐
               ▼                                ▼
-  agent image-builder (trusted)       agent kubectl (trusted)
-  build + scan + push                         │ kubeconfig deploy tối thiểu
+  agent image-builder                  agent trusted-release
+  build + scan + OCI archive                   │ push + kubeconfig deploy tối thiểu
               │                               ▼
-              ▼                       Namespace web-api-staging
-     Registry nội bộ                         Deployment + Service
+              ▼                       Registry và namespace staging
+     artifact đã quét                       Deployment + Service
      tag duy nhất + digest                       │
               │                                  ▼
               └──────────── evidence ──> logs, events, metrics
 ```
 
-Agent image-builder được phép lấy source, kéo base image và push đúng repository. Agent deploy chỉ cần gọi API Kubernetes cho namespace/revision đích; nó không cần Docker daemon. Build của fork dùng pool `untrusted-pr`, không có hai credential release này.
+Agent image-builder chỉ lấy source, kéo base image, build/scan và tạo OCI archive; nó không có token publish. Agent trusted-release mới push đúng repository rồi gọi API Kubernetes cho namespace/revision đích; agent deploy không cần Docker daemon. Build của fork không có credential registry write hoặc kubeconfig deploy; nếu có pool `untrusted-pr` riêng, route build/scan vào pool đó theo policy Jenkins.
 
 ### Luồng commit đến rollback
 
@@ -151,7 +151,7 @@ Không đặt token trong `Jenkinsfile`, Dockerfile, manifest, URL, command line
 
 ### Điều kiện agent và plugin
 
-Mẫu giả định Jenkins LTS đã có Declarative Pipeline, Git, Credentials Binding và agent Linux phù hợp. Agent image-builder có Docker CLI/BuildKit, `trivy` `0.58.1`, `syft` `1.20.0` và `cosign` `2.4.1` được platform cài hoặc đóng gói trong image agent đã review. Agent deploy có `kubectl` `1.31.4`; Kubernetes API server phải nằm trong skew version mà tổ chức hỗ trợ.
+Mẫu giả định Jenkins LTS đã có Declarative Pipeline, Git, Credentials Binding, **Timestamper** cho directive `timestamps()` và agent Linux phù hợp. Xác minh phiên bản plugin tương thích Jenkins LTS trên controller đang chạy trước khi dùng directive/step; plugin không phải Jenkins core. Agent image-builder có Docker CLI/BuildKit, `gzip`, `trivy` `0.58.1`, `syft` `1.20.0` và `cosign` `2.4.1` được platform cài hoặc đóng gói trong image agent đã review. Agent deploy có `kubectl` `1.31.4`; Kubernetes API server phải nằm trong skew version mà tổ chức hỗ trợ.
 
 Đây là version pin của ví dụ để review. Khi nâng, thay đổi catalog tool/image bằng pull request, kiểm tra changelog và thử trên sandbox trước. Đọc cấu trúc Declarative tại [Jenkinsfile](/docs/pipelines/jenkinsfile) và quy tắc chọn executor tại [Chọn agent cho Pipeline](/docs/pipelines/agents).
 
@@ -160,8 +160,9 @@ Mẫu giả định Jenkins LTS đã có Declarative Pipeline, Git, Credentials 
 | Stage | Đầu vào | Kết quả/pass condition | Quyền cần có |
 | --- | --- | --- | --- |
 | `Checkout và test` | Commit được Jenkins chọn | Test pass, report không nhạy cảm | Đọc SCM |
-| `Build, scan và push image` | Dockerfile, context nhỏ và image local | Policy scan pass, SBOM và digest registry | Builder riêng, registry write tối thiểu |
-| `Deploy staging` | Digest đã push | Deployment dùng đúng digest | Patch deployment namespaced |
+| `Build và scan image` | Dockerfile, context nhỏ và image local | Policy scan pass, SBOM, OCI archive | Builder không có registry write |
+| `Push registry và lấy digest` | OCI archive đã quét, chỉ `main` không phải PR | Digest registry và tag build | Builder `trusted-release`, registry write tối thiểu |
+| `Deploy staging` | Digest đã push, chỉ `main` không phải PR | Deployment dùng đúng digest | Patch deployment namespaced |
 | `Verify rollout` | Revision mới | Rollout/readiness pass, evidence lưu | Get/list/watch/log namespaced |
 
 `Scan image` đứng trước `Push` để chặn artifact không qua policy. Tổ chức có thể cần scan lại digest sau push, admission policy tại cluster và kiểm tra chữ ký ở cả deploy time; một scanner trong CI không thay thế các lớp đó.
@@ -188,7 +189,7 @@ pipeline {
 
   stages {
     stage('Checkout và test') {
-      agent { label 'linux && node22 && trusted-release' }
+      agent { label 'linux && node22' }
       steps {
         checkout scm
         sh '''
@@ -200,8 +201,8 @@ pipeline {
       }
     }
 
-    stage('Build, scan và push image') {
-      agent { label 'linux && image-builder && trusted-release' }
+    stage('Build và scan image') {
+      agent { label 'linux && image-builder' }
       steps {
         checkout scm
         sh '''
@@ -215,6 +216,33 @@ pipeline {
           trivy image --exit-code 1 --severity HIGH,CRITICAL \
             --ignore-unfixed --format json --output reports/trivy.json "$IMAGE_TAG"
           syft "${IMAGE_TAG}" --output cyclonedx-json > reports/sbom.cdx.json
+          docker image save "$IMAGE_TAG" | gzip > image-oci.tar.gz
+        '''
+        stash includes: 'image-tag.txt,image-oci.tar.gz', name: 'scanned-image'
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'reports/*.json', allowEmptyArchive: true, fingerprint: true
+        }
+      }
+    }
+
+    stage('Push registry và lấy digest') {
+      when {
+        beforeAgent true
+        allOf {
+          branch 'main'
+          not { changeRequest() }
+        }
+      }
+      agent { label 'linux && image-builder && trusted-release' }
+      steps {
+        unstash 'scanned-image'
+        sh '''
+          set -eu
+          IMAGE_TAG="$(cat image-tag.txt)"
+          gzip --stdout --decompress image-oci.tar.gz | docker image load
+          docker image inspect "$IMAGE_TAG" >/dev/null
         '''
         withCredentials([
           usernamePassword(
@@ -239,15 +267,16 @@ pipeline {
         archiveArtifacts artifacts: 'image-tag.txt,image-digest.txt', fingerprint: true
         stash includes: 'image-digest.txt', name: 'release-image'
       }
-      post {
-        always {
-          archiveArtifacts artifacts: 'reports/*.json', allowEmptyArchive: true, fingerprint: true
-        }
-      }
     }
 
     stage('Deploy staging') {
-      when { branch 'main' }
+      when {
+        beforeAgent true
+        allOf {
+          branch 'main'
+          not { changeRequest() }
+        }
+      }
       agent { label 'linux && kubectl && trusted-release' }
       steps {
         unstash 'release-image'
@@ -267,7 +296,13 @@ pipeline {
     }
 
     stage('Verify rollout') {
-      when { branch 'main' }
+      when {
+        beforeAgent true
+        allOf {
+          branch 'main'
+          not { changeRequest() }
+        }
+      }
       agent { label 'linux && kubectl && trusted-release' }
       steps {
         withCredentials([
@@ -298,7 +333,7 @@ pipeline {
 }
 ```
 
-`checkout scm` được lặp ở stage dùng agent khác vì stage-level agent có thể là máy khác. Build, scan và push được cố ý giữ trong một allocation trên builder nên image local không bị mất giữa quality gate và `docker push`. Deploy chỉ nhận `image-digest.txt` qua `stash`, không cần Docker daemon hay workspace build. Production vẫn nên scan lại digest sau push vào registry để tránh chỉ tin kết quả trên daemon local.
+`checkout scm` được lặp ở stage dùng agent khác vì stage-level agent có thể là máy khác. `Build và scan image` không nạp credential publish, nên vẫn chạy cho pull request. `Push registry và lấy digest` chỉ được xét trước khi cấp agent khi source là branch `main` và không phải `changeRequest`; branch protection của SCM/Jenkins phải bảo đảm chỉ source đã review mới có thể vào `main`. Vì `withCredentials(registry-publish)` nằm bên trong stage đã gate, PR không bind token registry. Image được chuyển qua OCI archive có chủ đích; với image lớn, không stash qua controller mà dùng artifact manager hoặc cơ chế transfer đã review. Deploy chỉ nhận `image-digest.txt` qua `stash`, không cần Docker daemon hay workspace build. Production vẫn nên scan lại digest sau push vào registry để tránh chỉ tin kết quả trên daemon local.
 
 <Callout type="warn" title="Plugin và CLI có semantics riêng">
   `docker buildx imagetools inspect` cần Buildx có trong agent. `--record` của `kubectl set image` không phải audit trail đáng tin cậy; thay vào đó Pipeline archive digest, revision và event. Xác nhận option trên phiên bản CLI/plugin đang được platform phê duyệt trước rollout.
@@ -469,7 +504,7 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     resourceNames: ["web-api"]
-    verbs: ["get", "patch"]
+    verbs: ["get", "patch", "watch"]
   - apiGroups: ["apps"]
     resources: ["replicasets"]
     verbs: ["get", "list", "watch"]
@@ -495,7 +530,7 @@ roleRef:
   name: jenkins-web-api-deployer
 ```
 
-`kubectl rollout undo` cập nhật Deployment; `patch` đủ cho workflow này trên một số clusters nhưng hãy xác minh bằng `kubectl auth can-i` với identity thật. Không thêm `create`, `delete`, wildcard resource hay `cluster-admin` để vượt `Forbidden` mà chưa biết API request nào bị chặn.
+`kubectl rollout status` quan sát trạng thái Deployment nên Role cấp thêm `watch`, vẫn giới hạn `resourceNames: ["web-api"]`; `kubectl rollout undo` cập nhật Deployment qua `patch`. Hãy xác minh `get`, `patch` và `watch` bằng `kubectl auth can-i` với identity thật vì client, API server và authorizer có thể khác theo cluster. Không thêm `create`, `delete`, wildcard resource hay `cluster-admin` để vượt `Forbidden` mà chưa biết API request nào bị chặn.
 
 ### Namespace và network boundary
 
