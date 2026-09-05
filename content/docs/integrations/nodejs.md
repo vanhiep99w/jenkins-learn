@@ -119,7 +119,7 @@ Coverage có cùng sự phân tách: LCOV/Cobertura XML do coverage tool như c8
 
 ### Jenkinsfile tham khảo
 
-Declarative Pipeline này giả định protected `main` branch, agent image có Node `22.14.0`, npm và JUnit Plugin. Project implement script `test:ci` và `coverage` theo package contract của nó. `coverage` phải exit nonzero khi required coverage failure; ví dụ không âm thầm đổi lỗi thành success.
+Declarative Pipeline này giả định protected `main` branch, agent image có Node `22.14.0`, npm và JUnit Plugin. Project implement script `test:ci` và `coverage` theo package contract của nó. `coverage` phải exit nonzero khi required coverage failure; ví dụ không âm thầm đổi lỗi thành success. Nó tách hai stage cùng contract test theo trust boundary thay vì chạy mọi revision trên trusted agent.
 
 ```groovy
 pipeline {
@@ -131,8 +131,12 @@ pipeline {
   }
 
   stages {
-    stage('Install locked dependencies') {
-      agent { label 'linux && node22-trusted-ci' }
+    stage('PR: install and test untrusted source') {
+      when {
+        beforeAgent true
+        changeRequest()
+      }
+      agent { label 'linux && node22-untrusted-pr' }
       steps {
         checkout scm
         sh '''#!/bin/sh
@@ -142,18 +146,6 @@ pipeline {
           test -f package-lock.json
           test ! -f pnpm-lock.yaml
           test ! -f yarn.lock
-          export npm_config_cache="$WORKSPACE/.npm-cache"
-          npm ci
-        '''
-      }
-    }
-
-    stage('Test and coverage') {
-      agent { label 'linux && node22-trusted-ci' }
-      steps {
-        checkout scm
-        sh '''#!/bin/sh
-          set -eu
           export npm_config_cache="$WORKSPACE/.npm-cache"
           npm ci
           mkdir -p reports coverage
@@ -169,21 +161,62 @@ pipeline {
           archiveArtifacts artifacts: 'reports/junit.xml,coverage/lcov.info',
             allowEmptyArchive: false, fingerprint: true
         }
+        cleanup {
+          deleteDir()
+        }
       }
     }
-  }
 
-  post {
-    always {
-      deleteDir()
+    stage('Protected revision: install and test trusted source') {
+      when {
+        beforeAgent true
+        allOf {
+          not { changeRequest() }
+          anyOf {
+            branch 'main'
+            buildingTag()
+          }
+        }
+      }
+      agent { label 'linux && node22-trusted-ci' }
+      steps {
+        checkout scm
+        sh '''#!/bin/sh
+          set -eu
+          test "$(node --version)" = 'v22.14.0'
+          test -f package.json
+          test -f package-lock.json
+          test ! -f pnpm-lock.yaml
+          test ! -f yarn.lock
+          export npm_config_cache="$WORKSPACE/.npm-cache"
+          npm ci
+          mkdir -p reports coverage
+          npm run test:ci
+          test -s reports/junit.xml
+          npm run coverage
+          test -s coverage/lcov.info
+        '''
+      }
+      post {
+        always {
+          junit allowEmptyResults: false, testResults: 'reports/junit.xml'
+          archiveArtifacts artifacts: 'reports/junit.xml,coverage/lcov.info',
+            allowEmptyArchive: false, fingerprint: true
+        }
+        cleanup {
+          deleteDir()
+        }
+      }
     }
   }
 }
 ```
 
-`agent none` means stages may use different workspaces. This sample checks out and installs separately in each stage instead of assuming `node_modules` survives. For a faster implementation, transfer only an intended artifact with checksum or use a trusted cache policy; do not blindly stash `node_modules`. `deleteDir()` is workspace cleanup, not a replacement for cache isolation when static agents or shared home directories exist.
+`beforeAgent true` makes Jenkins evaluate `changeRequest()`, `branch` and `buildingTag()` before allocating the corresponding agent. PR code and its lifecycle scripts therefore never reach `node22-trusted-ci`; the PR cache is under that stage workspace and is removed in the stage `cleanup`. The trusted stage only checks out a non-PR `main` revision or tag. If SCM uses a merge queue with synthetic refs, configure an explicit trusted condition only after SCM policy verifies the queue revision is based on protected merges; do not grant it the trusted label merely because its name resembles `main`.
 
-Fork/PR lane phải dùng label riêng không có credential và không có writable trusted cache. Branch condition, SCM source discovery và label là runtime policy: test chúng bằng harmless job trước release. Xem [Kiểm thử Jenkinsfile](/docs/pipelines/testing) về static evidence so với controller runtime evidence.
+`agent none` means stages may use different workspaces. Each source-using stage performs its own `checkout scm` and `npm ci`; it does not assume `node_modules` survives from another agent. `post { cleanup { deleteDir() } }` belongs to each stage that allocated a workspace, runs after its `always` report publication, and only clears that stage workspace. Do not use a pipeline-level `deleteDir()` with `agent none`, and do not replace this with a path cleanup outside the workspace. `cleanWs()` is an alternative only when Workspace Cleanup Plugin is installed and its behavior is validated.
+
+Mẫu này chủ ý dừng sau test. Package publish/release stage chỉ được chạy sau protected-revision gate, trên `node22-trusted-release` agent/cache boundary riêng, với registry credential least-privilege scope ngắn; nó không được chạy source hay lifecycle script từ untrusted PR. Branch protection, merge queue discovery, agent label, cache mount và credential scope là runtime policy: test chúng bằng harmless job trước release. Xem [Kiểm thử Jenkinsfile](/docs/pipelines/testing) về static evidence so với controller runtime evidence.
 
 ## Lab local không dùng registry
 
