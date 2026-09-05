@@ -19,7 +19,7 @@ export const { staticGET: GET } = createFromSource(source, {
         // Cloudflare Pages limits individual static assets to 25 MiB. Keep
         // search coverage broad while preventing very long pages from making
         // the serialized index exceed that limit.
-        contents: structuredData.contents.slice(0, 200),
+        contents: structuredData.contents.slice(0, 175),
       },
     };
   },
