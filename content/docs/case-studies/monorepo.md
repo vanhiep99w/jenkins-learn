@@ -182,6 +182,8 @@ Giữ tỷ lệ full builds, false-negative của detector và thời gian feedb
 
 Mẫu dưới đây là Declarative Pipeline hợp lệ về cấu trúc, nhưng cần repository cung cấp hai script trong contract ở phần sau. Nó chỉ dùng Pipeline steps cơ bản (`checkout`, `stash`, `unstash`, `sh`, `junit`, `archiveArtifacts`, `deleteDir`) và không giả định API plugin ngoài các step đó. `disableConcurrentBuilds(abortPrevious: true)` là chính sách hủy build cũ của **cùng job**; xác minh plugin Pipeline: Declarative trên controller trước khi chuẩn hóa.
 
+Mẫu chỉ dùng `origin/$CHANGE_TARGET` khi SCM checkout đã fetch target ref đó. Với shallow clone, build đầu tiên hoặc SCM context không có `CHANGE_TARGET`, nếu không xác minh được `HEAD^` thì Pipeline ghi plan `full` có reason `base-unavailable`; nó không chạy `git diff HEAD HEAD` và không gọi detector theo một base chưa được chứng minh.
+
 ```groovy
 pipeline {
   agent none
@@ -227,7 +229,13 @@ pipeline {
           elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
             base='HEAD^'
           else
-            base='HEAD'
+            printf '%s\n' 'base-unavailable: require target ref or parent commit; forcing full validation' \
+              > evidence/base-resolution.txt
+            printf '%s\n' \
+              '{"mode":"full","affected":[],"policyReasons":["base-unavailable"]}' \
+              > evidence/plan.json
+            test -s evidence/plan.json
+            exit 0
           fi
           git diff --name-status --find-renames "$base" HEAD > evidence/changes.tsv
           ci/affected-plan.sh --base "$base" --changes evidence/changes.tsv \
@@ -350,10 +358,10 @@ Danh sách branch được tạo động từ JSON cần Scripted Pipeline hoặ
 
 | Input hoặc output | Yêu cầu |
 | --- | --- |
-| `--base` | Revision Git đã được `rev-parse` xác minh. |
+| `--base` | Chỉ nhận revision Git đã được `rev-parse` xác minh. Khi base không có, Pipeline không gọi detector. |
 | `--changes` | File `name-status` giữ add, modify, delete và rename. |
 | `--output` | JSON được ghi atomically; không chứa secret hay path máy agent. |
-| `mode` | Chỉ `targeted` hoặc `full`; mọi lỗi parsing/base thiếu chọn `full` hoặc exit non-zero theo policy. |
+| `mode` | Chỉ `targeted` hoặc `full`; Pipeline tự ghi plan `full` với `policyReasons: ["base-unavailable"]` khi không chứng minh được base. Mọi lỗi detector khác chọn `full` hoặc exit non-zero theo policy. |
 | `affected` | Mỗi item có project ID, domain, reasons và command key từ allowlist. |
 | `policyReasons` | Nêu lockfile, CI, generated boundary, graph stale hay điều kiện khiến full. |
 
