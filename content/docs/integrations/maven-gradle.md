@@ -165,7 +165,9 @@ Artifact release cần version/coordinate bất biến, SHA-256/SHA-512, metadat
 
 ### Pipeline Maven
 
-Mẫu này giả định Multibranch Pipeline, `main` được bảo vệ, wrapper Maven executable, JDK/pin agent đã chuẩn bị, JUnit plugin và agent Linux. Các file `target/catalog-api-1.4.0.jar` và `target/catalog-api-1.4.0.jar.sha256` là contract minh họa của project; thay bằng coordinate/path thật đã review. Pipeline không có URL repository, token hay publish command: publish phải là stage trusted riêng, sau gate artifact, với credential publish chỉ tồn tại trong closure tối thiểu.
+Mẫu này giả định Multibranch Pipeline, `main` được bảo vệ và chỉ trusted source mới có quyền merge vào đó, wrapper Maven executable, JDK/pin agent đã chuẩn bị, Git/JUnit plugin và agent Linux. Các file `target/catalog-api-1.4.0.jar` và `target/catalog-api-1.4.0.jar.sha256` là contract minh họa của project; thay bằng coordinate/path thật đã review. Pipeline không có URL repository, token hay publish command: publish phải là stage trusted riêng, sau gate artifact, với credential publish chỉ tồn tại trong closure tối thiểu.
+
+`agent none` cùng `skipDefaultCheckout(true)` ngăn implicit checkout trên mọi agent. Stage build checkout revision SCM đã được Jenkins chọn cho run, ghi `git rev-parse HEAD` cạnh artifact rồi chỉ stash JAR, checksum và revision đó. Stage publish chỉ được cấp agent sau `when { beforeAgent true; branch 'main' }`; tại workspace trusted mới, nó checkout lại SCM của **cùng run**, xác minh `GIT_COMMIT`, `HEAD` và revision đã stash khớp nhau, rồi mới `unstash`/gọi script. Vì vậy không chép toàn source từ lane build/PR sang release workspace, không rebuild artifact, và fail closed nếu revision hay script không đúng.
 
 ```groovy
 pipeline {
@@ -195,10 +197,12 @@ pipeline {
           sha256sum target/catalog-api-1.4.0.jar \
             > target/catalog-api-1.4.0.jar.sha256
           (cd target && sha256sum -c catalog-api-1.4.0.jar.sha256)
+          git rev-parse --verify HEAD > target/release-input.git-commit
+          test -s target/release-input.git-commit
         '''
         stash(
           name: 'maven-verified-output',
-          includes: 'target/catalog-api-1.4.0.jar,target/catalog-api-1.4.0.jar.sha256',
+          includes: 'target/catalog-api-1.4.0.jar,target/catalog-api-1.4.0.jar.sha256,target/release-input.git-commit',
           useDefaultExcludes: true
         )
       }
@@ -220,10 +224,11 @@ pipeline {
           set -eu
           test -s target/catalog-api-1.4.0.jar
           test -s target/catalog-api-1.4.0.jar.sha256
+          test -s target/release-input.git-commit
           (cd target && sha256sum -c catalog-api-1.4.0.jar.sha256)
         '''
         archiveArtifacts(
-          artifacts: 'target/catalog-api-1.4.0.jar,target/catalog-api-1.4.0.jar.sha256',
+          artifacts: 'target/catalog-api-1.4.0.jar,target/catalog-api-1.4.0.jar.sha256,target/release-input.git-commit',
           allowEmptyArchive: false,
           defaultExcludes: true,
           fingerprint: true
@@ -238,11 +243,20 @@ pipeline {
       }
       agent { label 'trusted-release-linux && jdk17' }
       steps {
+        // Chỉ chạy sau branch gate; checkout source trusted của revision run hiện tại.
+        checkout scm
         unstash 'maven-verified-output'
         sh '''#!/bin/sh
           set -eu
+          test -x ./ci/publish-verified-maven-artifact
           test -s target/catalog-api-1.4.0.jar
+          test -s target/release-input.git-commit
           (cd target && sha256sum -c catalog-api-1.4.0.jar.sha256)
+          release_input_revision="$(cat target/release-input.git-commit)"
+          checkout_revision="$(git rev-parse --verify HEAD)"
+          test -n "${GIT_COMMIT:-}"
+          test "$GIT_COMMIT" = "$checkout_revision"
+          test "$release_input_revision" = "$checkout_revision"
         '''
         withCredentials([
           file(credentialsId: 'maven-release-settings', variable: 'MAVEN_SETTINGS')
@@ -264,7 +278,7 @@ pipeline {
 }
 ```
 
-Ví dụ cố ý đặt test/package ngoài `withCredentials`. `maven-release-settings` chỉ bao publisher sau branch gate và checksum verification. `stash` chỉ chuyển package/checksum đã verify giữa các stage của cùng run; mỗi stage `unstash` rồi verify SHA-256 lại, nên không giả định workspace agent còn tồn tại. Artifact repository vẫn là nguồn distribution lâu dài. Không bind mirror-read credential và release-publish credential trong cùng block.
+Ví dụ cố ý đặt test/package ngoài `withCredentials`. `maven-release-settings` chỉ bao publisher sau branch gate, checkout source trusted và checksum/revision verification. `stash` chỉ chuyển package/checksum/revision đã verify giữa các stage của cùng run; mỗi stage `unstash` rồi verify SHA-256 lại, nên không giả định workspace agent còn tồn tại. Publish stage dùng `checkout scm` độc lập để có `./ci/publish-verified-maven-artifact`; nó không dùng source từ stash và không gọi Maven để rebuild. `git rev-parse HEAD`, `GIT_COMMIT` do Git plugin đặt sau checkout, và `release-input.git-commit` phải giống nhau; mismatch hoặc thiếu biến làm fail trước credential. Artifact repository vẫn là nguồn distribution lâu dài. Không bind mirror-read credential và release-publish credential trong cùng block.
 
 ### Tương đương Gradle
 
