@@ -164,15 +164,15 @@ Hai promotion production cho cùng workload có thể race: release A health che
 
 ### Giả định runtime và contract script
 
-Pipeline sau không chứa endpoint, credential value hoặc URL production. Các script `ci/*` là contract nội bộ phải được review và kiểm thử riêng:
+Pipeline này là **Multibranch release job**: SCM source chỉ cho phép branch `main` đã được bảo vệ đi vào các stage release. Build pull request, fork hoặc branch khác phải chạy một CI không đặc quyền riêng; chúng không đi tới stage có credential deploy. Pipeline không chứa endpoint, credential value hoặc URL production. Các script `ci/*` là contract nội bộ phải được review và kiểm thử riêng:
 
 - `publish-immutable-artifact` tạo artifact, SBOM, SHA-256 và `release/evidence.json`; nó từ chối ghi đè coordinate release.
-- `verify-release-evidence` đọc manifest, kiểm artifact digest, report và policy; nó không in secret.
+- `verify-release-evidence` đọc manifest, kiểm artifact digest, report, policy và revision SCM đang checkout; nó không in secret.
 - `deploy-release` nhận `--environment` từ allowlist và `--digest`; credential được nó đọc từ environment, không từ argv. Script phải map logical environment sang cấu hình/endpoint đã được quản trị ngoài Jenkinsfile.
 - `verify-deployment` kiểm rollout/health bằng digest và logical environment, sau đó ghi evidence đã redact.
 - `record-release-event` gửi metadata không nhạy cảm vào audit/change system; việc gửi thất bại phải được policy phân loại rõ, không được im lặng bỏ qua production record.
 
-Ví dụ dùng agent label `trusted-release-linux`; label chỉ route scheduler, không phải security boundary. Tách agent, filesystem, network egress và service identity của release khỏi build pull request không tin cậy.
+`stash` trong mẫu chỉ chứa `release/evidence.json` đã được kiểm tra, không chứa source, artifact lớn, credential hay output nhạy cảm. Vì `agent none` cho phép mỗi stage nhận workspace khác, mọi stage release đều `checkout scm` đúng revision rồi `unstash` manifest trước khi gọi script. Ví dụ dùng agent label `trusted-release-linux`; label chỉ route scheduler, không phải security boundary. Tách agent, filesystem, network egress và service identity của release khỏi build pull request không tin cậy.
 
 ### Pipeline Declarative
 
@@ -193,6 +193,10 @@ pipeline {
 
   stages {
     stage('Build and publish immutable artifact') {
+      when {
+        beforeAgent true
+        branch 'main'
+      }
       agent { label 'build-linux' }
       steps {
         checkout scm
@@ -204,12 +208,19 @@ pipeline {
           test -s release/evidence.json
         '''
         archiveArtifacts artifacts: 'release/evidence.json', fingerprint: true
+        stash name: 'release-evidence', includes: 'release/evidence.json', useDefaultExcludes: true
       }
     }
 
     stage('Verify evidence') {
+      when {
+        beforeAgent true
+        branch 'main'
+      }
       agent { label 'trusted-release-linux' }
       steps {
+        checkout scm
+        unstash 'release-evidence'
         script {
           env.ARTIFACT_DIGEST = sh(
             returnStdout: true,
@@ -224,8 +235,24 @@ pipeline {
     }
 
     stage('Promote to dev') {
+      when {
+        beforeAgent true
+        branch 'main'
+      }
       agent { label 'trusted-release-linux' }
       steps {
+        checkout scm
+        unstash 'release-evidence'
+        sh './ci/verify-release-evidence --manifest release/evidence.json'
+        script {
+          env.ARTIFACT_DIGEST = sh(
+            returnStdout: true,
+            script: './ci/read-release-digest release/evidence.json'
+          ).trim()
+          if (!(env.ARTIFACT_DIGEST ==~ /^sha256:[0-9a-f]{64}$/)) {
+            error 'Release manifest did not contain an allowed SHA-256 digest'
+          }
+        }
         withCredentials([string(credentialsId: 'dev-deploy-token', variable: 'DEPLOY_TOKEN')]) {
           sh '''#!/bin/sh
             set -eu
@@ -238,8 +265,24 @@ pipeline {
     }
 
     stage('Promote to staging') {
+      when {
+        beforeAgent true
+        branch 'main'
+      }
       agent { label 'trusted-release-linux' }
       steps {
+        checkout scm
+        unstash 'release-evidence'
+        sh './ci/verify-release-evidence --manifest release/evidence.json'
+        script {
+          env.ARTIFACT_DIGEST = sh(
+            returnStdout: true,
+            script: './ci/read-release-digest release/evidence.json'
+          ).trim()
+          if (!(env.ARTIFACT_DIGEST ==~ /^sha256:[0-9a-f]{64}$/)) {
+            error 'Release manifest did not contain an allowed SHA-256 digest'
+          }
+        }
         withCredentials([string(credentialsId: 'staging-deploy-token', variable: 'DEPLOY_TOKEN')]) {
           sh '''#!/bin/sh
             set -eu
@@ -253,16 +296,32 @@ pipeline {
 
     stage('Approve production promotion') {
       options { timeout(time: 20, unit: 'MINUTES') }
+      when {
+        beforeInput true
+        branch 'main'
+      }
       input {
         message 'Approve the recorded artifact and gates for production promotion?'
         ok 'Approve promotion'
         submitter 'release-managers'
         submitterParameter 'PRODUCTION_APPROVER'
       }
+      agent { label 'trusted-release-linux' }
       steps {
+        checkout scm
+        unstash 'release-evidence'
+        sh './ci/verify-release-evidence --manifest release/evidence.json'
+        script {
+          env.ARTIFACT_DIGEST = sh(
+            returnStdout: true,
+            script: './ci/read-release-digest release/evidence.json'
+          ).trim()
+          if (!(env.ARTIFACT_DIGEST ==~ /^sha256:[0-9a-f]{64}$/)) {
+            error 'Release manifest did not contain an allowed SHA-256 digest'
+          }
+        }
         sh '''#!/bin/sh
           set -eu
-          ./ci/verify-release-evidence --manifest release/evidence.json
           ./ci/record-release-event \
             --event approval \
             --environment production \
@@ -273,8 +332,24 @@ pipeline {
     }
 
     stage('Promote to production') {
+      when {
+        beforeAgent true
+        branch 'main'
+      }
       agent { label 'trusted-release-linux' }
       steps {
+        checkout scm
+        unstash 'release-evidence'
+        sh './ci/verify-release-evidence --manifest release/evidence.json'
+        script {
+          env.ARTIFACT_DIGEST = sh(
+            returnStdout: true,
+            script: './ci/read-release-digest release/evidence.json'
+          ).trim()
+          if (!(env.ARTIFACT_DIGEST ==~ /^sha256:[0-9a-f]{64}$/)) {
+            error 'Release manifest did not contain an allowed SHA-256 digest'
+          }
+        }
         lock(resource: 'production-catalog-api') {
           withCredentials([string(credentialsId: 'production-deploy-token', variable: 'DEPLOY_TOKEN')]) {
             sh '''#!/bin/sh
@@ -296,7 +371,6 @@ pipeline {
   post {
     always {
       echo "Release ${env.RELEASE_NAME}, build ${env.BUILD_NUMBER}: ${currentBuild.currentResult}"
-      archiveArtifacts artifacts: 'release/evidence.json', allowEmptyArchive: true
     }
     aborted {
       echo 'Promotion was aborted or approval timed out; no automatic rollback decision is made.'
@@ -310,10 +384,11 @@ pipeline {
 
 ### Đọc policy trong Pipeline
 
-- CI tạo `release/evidence.json` một lần và `Verify evidence` lấy digest từ file đó. Stage dev/staging/production nhận cùng `ARTIFACT_DIGEST`; không stage nào checkout source để rebuild.
-- `DEPLOY_TOKEN` chỉ tồn tại trong closure `withCredentials`. Shell dùng single-quoted block để shell mở rộng environment; token không nằm trong Groovy interpolation, URL hay argv. Mỗi credential ID cần folder/job scope và quyền deploy riêng.
-- `archiveArtifacts` chỉ archive manifest đã biết. Manifest phải được review để không nhét secret, raw response hoặc file credential vào artifact Jenkins.
-- Approval có timeout và `submitter`; `submitterParameter` thêm approver vào event. Build record có thể bị hết retention, vì vậy `record-release-event` phải đi đến audit/change system theo policy.
+- Mọi stage release dùng `when { branch 'main' }`. Đây là control của Multibranch Pipeline, nên chỉ có giá trị khi SCM branch protection và branch-discovery policy đã được kiểm tra; PR/fork bị skip trước khi agent hay credential deploy được cấp.
+- CI checkout revision, tạo `release/evidence.json`, archive và `stash` đúng một manifest. Mỗi stage trusted sau đó `checkout scm` đúng revision và `unstash 'release-evidence'`; không stage nào dựa vào workspace của agent trước hoặc checkout source để rebuild.
+- Mỗi stage dev, staging và production chạy `verify-release-evidence` cùng kiểm digest **trước** `withCredentials`. `DEPLOY_TOKEN` chỉ tồn tại trong closure sau gate này. Shell dùng single-quoted block để shell mở rộng environment; token không nằm trong Groovy interpolation, URL hay argv. Mỗi credential ID cần folder/job scope và quyền deploy riêng.
+- Approval có timeout, `submitter`, trusted agent/workspace và verification manifest trước khi ghi event; `submitterParameter` thêm approver vào event. Build record có thể bị hết retention, vì vậy `record-release-event` phải đi đến audit/change system theo policy.
+- `archiveArtifacts` chỉ archive manifest đã biết trên build agent, không chạy trong Pipeline `post` không có workspace. Manifest phải được review để không nhét secret, raw response hoặc file credential vào artifact Jenkins.
 - `lock` chỉ bao production deploy và verification. Nếu `verify-deployment` fail, `post { failure }` không tự rollback: automation trước hết phải biết deploy đã tạo state nào. Người chịu trách nhiệm theo runbook chọn rollback, forward-fix hoặc dừng rollout.
 
 <Callout type="warn" title="Ví dụ cần validation runtime">
