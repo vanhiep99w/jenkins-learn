@@ -227,7 +227,7 @@ Jenkins `fingerprint` giúp liên kết file giữa jobs trong Jenkins, nhưng k
 
 ## Jenkinsfile mẫu: gate chặn và evidence
 
-Mẫu dưới dùng Maven để minh họa. Nó cần agent `trusted-linux-maven` có JDK/Maven và dự án thật có report paths tương ứng. `junit`, `archiveArtifacts`, `withSonarQubeEnv` và `waitForQualityGate` là Pipeline/plugin steps; xác minh plugin, version, global configuration và agent toolchain trên controller sandbox trước khi dùng.
+Mẫu dưới dùng Maven để minh họa. Nó cần agent `trusted-linux-maven` có JDK/Maven và dự án thật có report paths tương ứng. `junit`, `archiveArtifacts`, `withSonarQubeEnv` và `waitForQualityGate` là Pipeline/plugin steps; `timestamps()` cần **Timestamper plugin**. Pin và kiểm thử Timestamper, JUnit, SonarQube Scanner for Jenkins cùng các Pipeline plugin cần thiết trên controller sandbox; đồng thời xác minh version, global configuration và agent toolchain trước khi dùng.
 
 ```groovy
 pipeline {
@@ -317,6 +317,8 @@ pipeline {
 
 ### Plugin và runtime caveat
 
+`timestamps()` chỉ hoạt động khi Timestamper plugin đã được cài, pin version và kiểm thử trên controller đích; nó chỉ thêm timestamp vào log, không tạo evidence gate hay thay đổi outcome. Nếu controller không có plugin này, bỏ directive khỏi Jenkinsfile thay vì giả định Pipeline tự hỗ trợ nó.
+
 `withSonarQubeEnv('sonarqube-sandbox')` lấy cấu hình server tên đó từ Jenkins và đưa environment cần thiết vào closure. Nó không tự cài scanner, tạo project hay cho phép network. `waitForQualityGate abortPipeline: true` yêu cầu integration plugin/server hoạt động và webhook từ SonarQube quay về endpoint Jenkins của plugin. Khi quality gate Sonar báo không đạt, `abortPipeline: true` làm Pipeline dừng theo semantics plugin; không bọc nó bằng `catchError` để deploy tiếp.
 
 `waitForQualityGate` không phải polling vô hạn. Pipeline chờ webhook; `timeout` bao stage là deadline rõ ràng cho webhook hoặc lỗi integration. Nếu webhook sai URL, proxy chặn callback, plugin không tương thích hoặc server không thể gửi kết quả, build phải hết hạn/fail theo policy thay vì được coi là quality pass. Kiểm tra exact webhook URL, TLS, plugin version và response trong sandbox. Không kết nối SonarQube thật từ lab local ở bài này.
@@ -393,19 +395,26 @@ Lab tạo JUnit XML, scan JSON, checksum và policy text **giả** ở directory
 
 ### Tạo evidence tái lập
 
-Chạy toàn bộ block trong một shell. Nó tạo parent bằng `mktemp`, từ chối path không đúng prefix, và chỉ dùng marker công khai. `LAB_ROOT` cần còn trong shell để bước cleanup kiểm tra chính directory vừa tạo.
+Chạy toàn bộ block trong một shell có biến `WORKSPACE` trỏ tới directory lab cục bộ bạn sở hữu. Nó tạo `LAB_ROOT` trực tiếp dưới parent đó bằng `mktemp`, canonicalize path, từ chối parent/prefix không đúng và chỉ dùng marker công khai. `LAB_ROOT` cần còn trong shell để bước cleanup kiểm tra chính directory vừa tạo.
 
 ```bash
 set -eu
 umask 077
 
-LAB_PARENT="${TMPDIR:-/tmp}"
+: "${WORKSPACE:?Set WORKSPACE to a dedicated local lab parent}"
+WORKSPACE="$(cd -- "$WORKSPACE" && pwd -P)"
+test -d "$WORKSPACE"
 LAB_PREFIX='jenkins-quality-gate-lab.'
-LAB_ROOT="$(mktemp -d "${LAB_PARENT%/}/${LAB_PREFIX}XXXXXX")"
+LAB_ROOT="$(mktemp -d "${WORKSPACE%/}/${LAB_PREFIX}XXXXXX")"
+LAB_ROOT="$(cd -- "$LAB_ROOT" && pwd -P)"
 case "$LAB_ROOT" in
-  "${LAB_PARENT%/}/${LAB_PREFIX}"*) ;;
+  "${WORKSPACE%/}/${LAB_PREFIX}"*) ;;
   *) printf 'Refuse unexpected lab path: %s\n' "$LAB_ROOT" >&2; exit 1 ;;
 esac
+[ "$(dirname -- "$LAB_ROOT")" = "$WORKSPACE" ] || {
+  printf 'Refuse lab outside the direct WORKSPACE child: %s\n' "$LAB_ROOT" >&2
+  exit 1
+}
 : > "$LAB_ROOT/.lab-owned"
 mkdir -p "$LAB_ROOT/evidence" "$LAB_ROOT/target/surefire-reports"
 
@@ -450,17 +459,24 @@ Kết quả mong đợi gồm `Fake static gates: PASS`, checksum `OK`, một XM
 
 ### Đọc kết quả và dọn dẹp có guard
 
-Trước cleanup, kiểm tra file có marker vô hại và chỉ nằm trong directory lab. Không thay `LAB_ROOT` bằng workspace, `JENKINS_HOME`, volume, source repository hay path người dùng nhập. Cleanup không xóa parent, registry, image hoặc bất kỳ resource bên ngoài nào.
+Trước cleanup, canonicalize `WORKSPACE` và `LAB_ROOT`, rồi kiểm tra marker, prefix và việc `LAB_ROOT` là **child trực tiếp** của `$WORKSPACE`. Không thay `LAB_ROOT` bằng workspace, `JENKINS_HOME`, volume, source repository hay path người dùng nhập. Cleanup không xóa parent, registry, image hoặc bất kỳ resource bên ngoài nào.
 
 ```bash
 set -eu
+: "${WORKSPACE:?Run the creation block in this shell}"
 : "${LAB_ROOT:?Run the creation block in this shell}"
-LAB_PARENT="${TMPDIR:-/tmp}"
+WORKSPACE="$(cd -- "$WORKSPACE" && pwd -P)"
+test -d "$WORKSPACE"
+test -d "$LAB_ROOT"
+LAB_ROOT="$(cd -- "$LAB_ROOT" && pwd -P)"
 LAB_PREFIX='jenkins-quality-gate-lab.'
 
 case "$LAB_ROOT" in
-  "${LAB_PARENT%/}/${LAB_PREFIX}"*)
-    test -d "$LAB_ROOT"
+  "${WORKSPACE%/}/${LAB_PREFIX}"*)
+    [ "$(dirname -- "$LAB_ROOT")" = "$WORKSPACE" ] || {
+      printf 'Refuse cleanup outside the direct WORKSPACE child: %s\n' "$LAB_ROOT" >&2
+      exit 1
+    }
     test -f "$LAB_ROOT/.lab-owned"
     test -f "$LAB_ROOT/evidence/artifact.sha256"
     rm -rf -- "$LAB_ROOT"
@@ -518,6 +534,7 @@ esac
 - [Jenkins Pipeline](https://www.jenkins.io/doc/book/pipeline/) và [Using a Jenkinsfile](https://www.jenkins.io/doc/book/pipeline/jenkinsfile/) — Pipeline, stage, `post`, agent và Jenkinsfile.
 - [Pipeline Syntax](https://www.jenkins.io/doc/book/pipeline/syntax/) và [Pipeline Steps Reference](https://www.jenkins.io/doc/pipeline/steps/) — xác minh directive/step trên controller tương ứng.
 - [JUnit Plugin](https://plugins.jenkins.io/junit/) — step `junit` và report test.
+- [Timestamper Plugin](https://plugins.jenkins.io/timestamper/) — prerequisite cung cấp `timestamps()`; pin và kiểm thử trên controller đích.
 - [Warnings Next Generation Plugin](https://plugins.jenkins.io/warnings-ng/) — `recordIssues` và behavior phụ thuộc plugin/tool parser.
 - [SonarQube Scanner for Jenkins](https://plugins.jenkins.io/sonar/) và [SonarQube Jenkins extension](https://docs.sonarsource.com/sonarqube-server/analyzing-source-code/ci-integration/jenkins-integration/) — `withSonarQubeEnv`, webhook và quality gate integration.
 - [Pipeline: Basic Steps](https://www.jenkins.io/doc/pipeline/steps/workflow-basic-steps/) — `timeout`, `retry`, `catchError`, `error` và interruption semantics.
