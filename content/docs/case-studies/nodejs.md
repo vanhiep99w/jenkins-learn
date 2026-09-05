@@ -398,12 +398,73 @@ Chỉ thêm block đó trên agent sandbox được tin cậy, sau promotion gat
 
 ### Tạo fixture không có dependency ngoài
 
-Prerequisite: Git và Node.js `22.14.0` có npm đi kèm. Tạo thư mục lab mới, không chạy trong repository có dữ liệu cần giữ. Fixture không có network dependency, registry credential, Docker daemon hay thao tác deploy.
+Prerequisite: Git và Node.js `22.14.0` có npm đi kèm. Dán **khối tạo fixture và khối chạy gate kế tiếp vào cùng một Bash shell**. Lab chỉ tạo một thư mục con ngẫu nhiên trực tiếp dưới `TMPDIR` (mặc định `/tmp`), đặt marker riêng và chỉ cleanup sau khi mọi guard khớp; không chạy trong repository hay workspace cần giữ. Fixture không có network dependency, registry credential, Docker daemon hay thao tác deploy.
 
 ```bash
 set -eu
-mkdir node-jenkins-fixture
-cd node-jenkins-fixture
+umask 077
+
+LAB_PARENT="${TMPDIR:-/tmp}"
+LAB_PARENT="${LAB_PARENT%/}"
+[ -n "$LAB_PARENT" ] || LAB_PARENT='/tmp'
+readonly LAB_PARENT
+readonly LAB_PREFIX='node-jenkins-fixture.'
+readonly LAB_MARKER_NAME='.node-jenkins-fixture-marker'
+readonly LAB_MARKER_VALUE='node-jenkins-fixture-v1'
+
+case "$LAB_PARENT" in
+  /*) ;;
+  *) printf >&2 'Refuse lab: TMPDIR must be an absolute path.\n'; exit 1 ;;
+esac
+
+LAB_ROOT="$(mktemp -d "${LAB_PARENT}/${LAB_PREFIX}XXXXXX")"
+readonly LAB_ROOT
+readonly LAB_MARKER="${LAB_ROOT}/${LAB_MARKER_NAME}"
+LAB_CLEANED=0
+
+case "$LAB_ROOT" in
+  "$LAB_PARENT"/"$LAB_PREFIX"*) ;;
+  *) printf >&2 'Refuse lab: unexpected temporary prefix.\n'; exit 1 ;;
+esac
+[ "$(dirname "$LAB_ROOT")" = "$LAB_PARENT" ] || {
+  printf >&2 'Refuse lab: temporary directory is not a direct child.\n'; exit 1;
+}
+
+cleanup_lab() {
+  if [ "$LAB_CLEANED" -eq 1 ]; then
+    return 0
+  fi
+
+  if [ -z "${LAB_PARENT:-}" ] || [ -z "${LAB_PREFIX:-}" ] || \
+     [ -z "${LAB_ROOT:-}" ] || [ -z "${LAB_MARKER:-}" ]; then
+    printf >&2 'Refuse cleanup: missing lab variables.\n'
+    return 1
+  fi
+
+  case "$LAB_ROOT" in
+    "$LAB_PARENT"/"$LAB_PREFIX"*) ;;
+    *) printf >&2 'Refuse cleanup: invalid prefix.\n'; return 1 ;;
+  esac
+
+  if [ "$(dirname "$LAB_ROOT")" != "$LAB_PARENT" ] || \
+     [ "$LAB_MARKER" != "$LAB_ROOT/$LAB_MARKER_NAME" ] || \
+     [ ! -d "$LAB_ROOT" ] || [ ! -f "$LAB_MARKER" ] || \
+     [ "$(cat "$LAB_MARKER")" != "$LAB_MARKER_VALUE" ]; then
+    printf >&2 'Refuse cleanup: parent, marker, or fixture guard failed.\n'
+    return 1
+  fi
+
+  cd / || return 1
+  rm -rf -- "$LAB_ROOT"
+  LAB_CLEANED=1
+}
+
+printf '%s\n' "$LAB_MARKER_VALUE" > "$LAB_MARKER"
+trap 'cleanup_lab' EXIT
+trap 'cleanup_lab' ERR
+trap 'exit 130' HUP INT TERM
+
+cd "$LAB_ROOT"
 mkdir -p src scripts test reports
 
 cat > package.json <<'EOF'
@@ -490,16 +551,33 @@ COPY src ./src
 USER node
 CMD ["node", "src/index.js"]
 EOF
+
+printf 'Fixture created at guarded temporary path: %s\n' "$LAB_ROOT"
 ```
 
-`type: module` trong `package.json` làm contract ES module của fixture tường minh. Trường `files` giới hạn tarball ở source runtime, tránh đóng gói report và output lab. Commit cả `package.json` lẫn `package-lock.json` trước khi tạo job Jenkins.
+`type: module` trong `package.json` làm contract ES module của fixture tường minh. Trường `files` giới hạn tarball ở source runtime, tránh đóng gói report và output lab. Biến, marker và trap ở trên chỉ sống trong Bash shell đang mở; không đoán lại `LAB_ROOT` trong một terminal khác. Khi paste các khối liên tiếp, trap sẽ cleanup cả khi command lỗi, shell thoát hoặc shell nhận tín hiệu. Nếu muốn giữ fixture để điều tra, copy **file không nhạy cảm** ra một thư mục do bạn sở hữu trước khi thoát shell; không tắt các guard cleanup.
 
 ### Chạy gate trên máy local
 
-Chạy từng bước trong fixture. Các lệnh này không publish package/image và không gọi deploy. `npm audit` có thể cần truy cập registry dù fixture không có dependency; nếu môi trường offline, ghi trạng thái audit chưa chạy thay vì kết luận audit pass.
+Chạy khối này **ngay trong cùng Bash shell** với khối tạo fixture. Nó xác minh lại parent/prefix/marker trước khi vào thư mục tạm, rồi gọi cleanup guard sau khi thu evidence. Các lệnh không publish package/image và không gọi deploy. `npm audit` có thể cần truy cập registry dù fixture không có dependency; nếu môi trường offline, ghi trạng thái audit chưa chạy thay vì kết luận audit pass.
 
 ```bash
 set -eu
+: "${LAB_ROOT:?Run the fixture-creation block in this shell first}"
+: "${LAB_MARKER:?Run the fixture-creation block in this shell first}"
+case "$LAB_ROOT" in
+  "$LAB_PARENT"/"$LAB_PREFIX"*) ;;
+  *) printf >&2 'Refuse gate: invalid fixture prefix.\n'; exit 1 ;;
+esac
+[ "$(dirname "$LAB_ROOT")" = "$LAB_PARENT" ] || {
+  printf >&2 'Refuse gate: fixture is not a direct child.\n'; exit 1;
+}
+[ "$LAB_MARKER" = "$LAB_ROOT/$LAB_MARKER_NAME" ] && \
+  [ "$(cat "$LAB_MARKER")" = "$LAB_MARKER_VALUE" ] || {
+  printf >&2 'Refuse gate: fixture marker guard failed.\n'; exit 1;
+}
+cd "$LAB_ROOT"
+
 [ "$(node --version)" = 'v22.14.0' ]
 npm ci
 npm run lint
@@ -515,6 +593,8 @@ test -s reports/unit.xml
 test -s reports/integration.xml
 test -s dist/build.txt
 test -s dist/package.sha256
+
+cleanup_lab
 ```
 
 Expected evidence là hai XML JUnit, `dist/build.txt`, một file `.tgz` và `dist/package.sha256`. Thử tạo failure có chủ đích bằng cách đổi expected `5` thành `4` trong `test/unit.test.js`; `npm run test:unit` phải trả mã khác `0` nhưng vẫn tạo report. Khôi phục assertion đúng trước khi commit.
