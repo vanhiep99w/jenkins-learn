@@ -71,25 +71,25 @@ Tăng số agent tạo thêm năng lực build, không tạo thêm controller wr
 │ Browser, SCM, │ ────────────────▼───────────────────────────► │ DNS + LB/proxy │
 │ inbound agent │    health chỉ route tới active, sticky UI     └───────┬────────┘
 └───────────────┘                                                       │
-                                      ┌────────────────────────────────┴───────────────┐
+                                      ┌─────────────────────────────────┴──────────────┐
                                       │                                                │
                                       ▼                                                ▼
                          ┌─────────────────────────┐                    ┌─────────────────────────┐
-                         │ Primary: ACTIVE          │                    │ Standby: FENCED/OFF     │
-                         │ 1 controller writer      │                    │ 0 writer                │
-                         │ JENKINS_HOME primary     │                    │ home/volume riêng       │
+                         │ Primary: ACTIVE         │                    │ Standby: FENCED/OFF     │
+                         │ 1 controller writer     │                    │ 0 writer                │
+                         │ JENKINS_HOME primary    │                    │ home/volume riêng       │
                          └────────────┬────────────┘                    └────────────┬────────────┘
-                                      │ snapshot/replication có kiểm soát             │ promote sau fencing
-                                      ▼                                                ▼
+                                      │ snapshot/replication có kiểm soát            │ promote sau fencing
+                                      ▼                                               ▼
                          ┌─────────────────────────┐                    ┌─────────────────────────┐
-                         │ encrypted backup +       │                    │ controller thay thế      │
-                         │ offsite, immutable copy  │                    │ cùng core/plugin policy  │
+                         │ encrypted backup +      │                    │ controller thay thế     │
+                         │ offsite, immutable copy │                    │ cùng core/plugin policy │
                          └─────────────────────────┘                    └─────────────────────────┘
                                       │
                                       ▼
                          ┌─────────────────────────────────────────────────────────────┐
                          │ Agent pools, SCM, artifact store, secrets/KMS: dependency   │
-                         │ riêng; không suy ra khỏe chỉ từ HTTP controller              │
+                         │ riêng; không suy ra khỏe chỉ từ HTTP controller             │
                          └─────────────────────────────────────────────────────────────┘
 ```
 

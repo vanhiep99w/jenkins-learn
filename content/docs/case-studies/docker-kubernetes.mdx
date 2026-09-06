@@ -91,7 +91,7 @@ Git repository ──commit──> Jenkins controller
               ▼                                ▼
   agent image-builder                  agent trusted-release
   build + scan + OCI archive                   │ push + kubeconfig deploy tối thiểu
-              │                               ▼
+              │                                ▼
               ▼                       Registry và namespace staging
      artifact đã quét                       Deployment + Service
      tag duy nhất + digest                       │

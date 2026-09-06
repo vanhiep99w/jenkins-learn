@@ -113,20 +113,20 @@ Tham khảo hướng dẫn [Docker](/docs/installation/docker), [Linux](/docs/in
 ```text
                  điểm khôi phục đã kiểm chứng
 ┌──────────────┐  quiet down / stop  ┌────────────────┐
-│ Jenkins       │ ─────────────────► │ JENKINS_HOME    │
-│ controller    │                    │ + keys + data   │
-└──────┬───────┘                    └───────┬────────┘
-       │                                      │ snapshot / archive
-       │                                      ▼
+│ Jenkins      │ ─────────────────►  │ JENKINS_HOME   │
+│ controller   │                     │ + keys + data  │
+└──────┬───────┘                     └───────┬────────┘
+       │                                     │ snapshot / archive
+       │                                     ▼
        │                           ┌────────────────────┐
-       │                           │ encrypted backup    │
-       │                           │ checksum + manifest │
+       │                           │ encrypted backup   │
+       │                           │ checksum + manifest│
        │                           └─────────┬──────────┘
        │                                     │ offsite copy
        ▼                                     ▼
 ┌──────────────────┐               ┌────────────────────┐
-│ controller cô lập │ ◄──────────── │ kho lưu trữ tách    │
-│ restore + verify  │               │ quyền truy cập      │
+│ controller cô lập│ ◄──────────── │ kho lưu trữ tách   │
+│ restore + verify │               │ quyền truy cập     │
 └──────────────────┘               └────────────────────┘
 ```
 

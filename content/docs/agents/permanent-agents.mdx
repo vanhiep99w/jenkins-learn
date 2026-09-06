@@ -71,13 +71,13 @@ Static agent **không phải security boundary**. `Jenkinsfile`, source, depende
                  cấu hình node: labels, root, executors, launcher
                                       │
                                       ▼
-┌──────────────┐    ┌─────────────┐  ┌───────────────────────────┐
+┌──────────────┐    ┌─────────────┐   ┌───────────────────────────┐
 │ Controller   │───►│ Build Queue │──►│ Permanent agent           │
-│ điều phối    │    │             │  │ executor → workspace      │
-└──────────────┘    └─────────────┘  │ toolchain + service user  │
+│ điều phối    │    │             │   │ executor → workspace      │
+└──────────────┘    └─────────────┘   │ toolchain + service user  │
                        ▲              └─────────────┬─────────────┘
-                       │ không có node phù hợp                    │ log/trạng thái
-                       └──────────────────────────────────────────┘
+                       │ không có node phù hợp      │ log/trạng thái
+                       └────────────────────────────┘
 ```
 
 Một build chỉ rời queue khi controller tìm được node `Online`, thỏa label expression và còn executor trống. Sau khi executor được cấp, agent tạo hoặc chọn workspace dưới remote root, chạy step rồi trả executor. `Offline`, `temporarily offline` hoặc agent mất kết nối đều làm capacity của node không còn dùng được cho allocation mới.

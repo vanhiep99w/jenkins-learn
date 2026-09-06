@@ -61,13 +61,13 @@ Không chọn inbound chỉ vì tên gọi. Nếu controller cần truy cập ho
 
 ```text
 ┌──────────────────────┐       HTTPS/WSS hoặc TCP        ┌──────────────────────┐
-│ Host agent           │ ───────────────────────────────► │ Jenkins controller   │
-│ agent.jar            │   agent chủ động khởi tạo        │ node config + queue  │
-│ service account      │ ◄─────────────────────────────── │ Remoting channel     │
-└──────────┬───────────┘        lệnh, log, trạng thái     └──────────┬───────────┘
-           │                                                         │
-           │ workspace, toolchain                                    │ chọn node theo
-           ▼                                                         ▼ label + executor
+│ Host agent           │ ───────────────────────────────►│ Jenkins controller   │
+│ agent.jar            │   agent chủ động khởi tạo       │ node config + queue  │
+│ service account      │ ◄───────────────────────────────│ Remoting channel     │
+└──────────┬───────────┘        lệnh, log, trạng thái    └──────────┬───────────┘
+           │                                                        │
+           │ workspace, toolchain                                   │ chọn node theo
+           ▼                                                        ▼ label + executor
      Pipeline process                                           Build Queue
 ```
 
