@@ -36,23 +36,39 @@ Một `agent` xác định **nơi** Jenkins chạy một phần Pipeline, không
 
 Khi một build đến lượt chạy, controller không chọn một máy ngẫu nhiên. Nó đối chiếu yêu cầu `agent` với node/agent đang online. Với `label`, Jenkins chỉ có thể cấp build cho node thỏa biểu thức nhãn và còn executor trống. Sau khi cấp phát, executor trên agent tạo hoặc chọn workspace để checkout và chạy các step.
 
-```mermaid
-flowchart TD
-  A[Pipeline hoặc stage yêu cầu agent] --> B{Có label expression?}
-  B -->|Có| C[Controller lọc node online theo label]
-  B -->|Không, agent any| D[Controller tìm executor phù hợp đang rảnh]
-  C --> E[Build queue]
-  D --> E
-  E --> F{Có executor trống?}
-  F -->|Chưa có| G[Giữ build trong queue và hiện lý do]
-  G --> E
-  F -->|Có| H[Executor trên agent được cấp]
-  H --> I[Workspace trên agent]
-  I --> J[Checkout, build, test và log]
-  J --> K[Trả executor khi allocation kết thúc]
+```d2 interactive title="Đường đi từ label đến workspace"
+direction: down
+A: "Pipeline hoặc stage yêu cầu\nagent"
+B: "Có label expression?" {
+  shape: diamond
+}
+C: "Controller lọc node online theo\nlabel"
+D: "Controller tìm executor phù hợp\nđang rảnh"
+E: "Build queue"
+F: "Có executor trống?" {
+  shape: diamond
+}
+G: "Giữ build trong queue và hiện lý\ndo"
+H: "Executor trên agent được cấp"
+I: "Workspace trên agent"
+J: "Checkout, build, test và log"
+K: "Trả executor khi allocation kết\nthúc"
+
+A -> B
+B -> C: "Có"
+B -> D: "Không, agent any"
+C -> E
+D -> E
+E -> F
+F -> G: "Chưa có"
+G -> E
+F -> H: "Có"
+H -> I
+I -> J
+J -> K
 ```
 
-Sơ đồ Mermaid này được dự án cấu hình để xử lý. Nếu sao chép tài liệu sang một Fumadocs khác, cần cấu hình renderer Mermaid trước khi kỳ vọng sơ đồ được vẽ thay vì hiện như code block.
+Sơ đồ D2 được render lúc build qua `@vanhiep99w/docs-kit`. Nếu sao chép tài liệu sang site khác, cần đăng ký plugin D2, component và CSS tương ứng.
 
 ### Executor, queue và workspace
 

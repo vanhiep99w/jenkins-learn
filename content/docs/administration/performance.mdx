@@ -39,15 +39,22 @@ Sau bài này, bạn có thể đặt baseline cho dịch vụ CI, phân biệt 
 
 ### Luồng và ranh giới bottleneck
 
-```text
-Trigger ──► Controller ──► Build Queue ──► Agent/executor ──► Build, test, publish
-                │                │                  │                    │
-                │                │                  │                    └─ SCM, registry,
-                │                │                  │                       artifact store, network
-                │                │                  │
-                │                │                  └─ CPU, RAM, disk I/O, workspace, cache
-                │                └─ queue wait, label, lock, provisioning
-                └─ HTTP/UI, scheduling, JVM heap/GC/threads, JENKINS_HOME I/O
+```d2 title="Luồng và ranh giới bottleneck"
+direction: right
+trigger: Trigger
+controller: Controller
+queue: Build Queue
+agent: Agent/executor
+build: Build, test, publish
+control_cost: "HTTP/UI, scheduling\nJVM heap/GC/threads\nJENKINS_HOME I/O"
+queue_cost: "Queue wait, label, lock\nprovisioning"
+agent_cost: "CPU, RAM, disk I/O\nworkspace, cache"
+external: "SCM, registry, artifact store\nnetwork"
+trigger -> controller -> queue -> agent -> build
+controller -> control_cost
+queue -> queue_cost
+agent -> agent_cost
+build -> external
 ```
 
 **Controller bottleneck** xuất hiện khi UI/API chậm, queue được xử lý chậm, JVM có GC pause dài, thread bị chặn hoặc filesystem `JENKINS_HOME` chậm. Controller điều phối và giữ metadata; nó không phải nơi chạy build production. Đặt built-in node là `0` executors để không để workload cạnh tranh trực tiếp với controller.

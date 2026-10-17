@@ -54,19 +54,32 @@ Workspace cũng không phải artifact store. Agent ephemeral, cleanup định k
 
 ## Luồng artifact và ranh giới dữ liệu
 
-```mermaid
-flowchart LR
-  A[Source đã được review] --> B[Agent workspace]
-  B --> C[Build và test]
-  C --> D[dist/release đường dẫn cố định]
-  D --> E[SHA-256, SBOM và metadata]
-  E --> F[archiveArtifacts]
-  F --> G[Artifact Manager: controller disk hoặc backend ngoài]
-  E --> H[Publisher có credential phạm vi hẹp]
-  H --> I[Artifact repository / object storage]
-  F --> J[Fingerprint: build tạo và build dùng]
-  G --> K[Retention Jenkins]
-  I --> L[Versioning, immutability và lifecycle repository]
+```d2 interactive title="Luồng artifact và ranh giới dữ liệu"
+direction: right
+A: "Source đã được review"
+B: "Agent workspace"
+C: "Build và test"
+D: "dist/release đường dẫn cố định"
+E: "SHA-256, SBOM và metadata"
+F: "archiveArtifacts"
+G: "Artifact Manager: controller\ndisk hoặc backend ngoài"
+H: "Publisher có credential phạm vi\nhẹp"
+I: "Artifact repository / object\nstorage"
+J: "Fingerprint: build tạo và build\ndùng"
+K: "Retention Jenkins"
+L: "Versioning, immutability và\nlifecycle repository"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+E -> H
+H -> I
+F -> J
+G -> K
+I -> L
 ```
 
 Agent tạo file trong workspace. `archiveArtifacts` thu file khớp mẫu rồi chuyển trách nhiệm giữ file cho **Artifact Manager**. Với backend mặc định, artifact được lưu trong `JENKINS_HOME` trên controller; tải archive lớn, I/O và retention dài vì thế trực tiếp gây áp lực disk, backup và hiệu năng controller. Với một Artifact Manager plugin, ví dụ **Artifact Manager on S3**, Jenkins có thể lưu artifact/stash ở object storage thay vì controller disk. Đây là thay đổi backend của Jenkins artifact, không tự biến artifact thành package Maven/npm hay cung cấp workflow promotion.

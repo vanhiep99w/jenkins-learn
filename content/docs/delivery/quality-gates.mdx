@@ -93,25 +93,45 @@ Gate **advisory** vẫn lưu và thông báo evidence nhưng không một mình 
 
 ### Luồng evidence
 
-```mermaid
-flowchart TD
-  A[Commit hoặc pull request] --> B[Checkout revision đã định danh]
-  B --> C[Compile, unit, integration]
-  C --> D[Lint, coverage, static analysis]
-  D --> E[Security và license scan]
-  E --> F[Build artifact bất biến]
-  F --> G[Checksum, provenance, signature]
-  G --> H{Protected branch và gate blocking đạt?}
-  H -->|Không| X[Chặn promotion, giữ evidence và mở remediation]
-  H -->|Có| I[Deploy sandbox hoặc staging]
-  I --> J[Smoke và health check có deadline]
-  J --> K{Đạt policy môi trường?}
-  K -->|Không| L[Rollback hoặc cô lập theo runbook]
-  K -->|Có| M[Approval độc lập nếu policy yêu cầu]
-  M --> N[Promote cùng artifact digest]
+```d2 interactive title="Luồng evidence"
+direction: down
+A: "Commit hoặc pull request"
+B: "Checkout revision đã định danh"
+C: "Compile, unit, integration"
+D: "Lint, coverage, static analysis"
+E: "Security và license scan"
+F: "Build artifact bất biến"
+G: "Checksum, provenance, signature"
+H: "Protected branch và gate\nblocking đạt?" {
+  shape: diamond
+}
+X: "Chặn promotion, giữ evidence và\nmở remediation"
+I: "Deploy sandbox hoặc staging"
+J: "Smoke và health check có\ndeadline"
+K: "Đạt policy môi trường?" {
+  shape: diamond
+}
+L: "Rollback hoặc cô lập theo\nrunbook"
+M: "Approval độc lập nếu policy yêu\ncầu"
+N: "Promote cùng artifact digest"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> H
+H -> X: "Không"
+H -> I: "Có"
+I -> J
+J -> K
+K -> L: "Không"
+K -> M: "Có"
+M -> N
 ```
 
-Mermaid cần được project cấu hình renderer để hiển thị; nếu chưa có, Fumadocs sẽ hiển thị block mã. Sơ đồ mô tả policy mong muốn, không khẳng định Jenkins core tự có scanner, signer, repository hay cơ chế rollback.
+Sơ đồ D2 được render lúc build qua `@vanhiep99w/docs-kit`. Sơ đồ mô tả policy mong muốn, không khẳng định Jenkins core tự có scanner, signer, repository hay cơ chế rollback.
 
 ### Ma trận theo tầng
 

@@ -80,10 +80,32 @@ Mặc định, Jenkins áp dụng `options` của stage, cấp **stage agent** n
 
 Khi một stage cũng có `input`, thứ tự mặc định khiến `input` được xử lý sau stage `options` nhưng **trước** stage agent và `when`. Đặt `beforeInput true` để đánh giá `when` trước hộp phê duyệt. `beforeInput true` được ưu tiên hơn `beforeAgent true`: stage sai điều kiện sẽ không hỏi approval cũng không cấp stage agent. Tóm tắt cho stage có `input`:
 
-```text
-Mặc định:        stage options → input → stage agent → when → steps
-beforeAgent:     stage options → input → when → stage agent → steps
-beforeInput:     stage options → when → input → stage agent → steps
+```d2 interactive title="Thứ tự đánh giá và stage agent"
+direction: right
+default: Mặc định {
+  options: Stage options
+  input: Input
+  agent: Stage agent
+  when: When
+  run_steps: Steps
+  options -> input -> agent -> when -> run_steps
+}
+before_agent: beforeAgent {
+  options: Stage options
+  input: Input
+  when: When
+  agent: Stage agent
+  run_steps: Steps
+  options -> input -> when -> agent -> run_steps
+}
+before_input: beforeInput {
+  options: Stage options
+  when: When
+  input: Input
+  agent: Stage agent
+  run_steps: Steps
+  options -> when -> input -> agent -> run_steps
+}
 ```
 
 Đây là thứ tự ở mức **stage**. Pipeline-level `options`, `agent`, checkout mặc định hoặc plugin có thể tạo thêm hành vi quanh stage; hãy quan sát log trên phiên bản Jenkins/plugin đang vận hành trước khi tối ưu capacity.

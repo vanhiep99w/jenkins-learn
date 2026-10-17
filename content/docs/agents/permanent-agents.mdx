@@ -67,17 +67,17 @@ Static agent **không phải security boundary**. `Jenkinsfile`, source, depende
 
 ## Mô hình node, queue và lifecycle
 
-```text
-                 cấu hình node: labels, root, executors, launcher
-                                      │
-                                      ▼
-┌──────────────┐    ┌─────────────┐   ┌───────────────────────────┐
-│ Controller   │───►│ Build Queue │──►│ Permanent agent           │
-│ điều phối    │    │             │   │ executor → workspace      │
-└──────────────┘    └─────────────┘   │ toolchain + service user  │
-                       ▲              └─────────────┬─────────────┘
-                       │ không có node phù hợp      │ log/trạng thái
-                       └────────────────────────────┘
+```d2 title="Mô hình node, queue và lifecycle"
+direction: right
+config: "Node config\nlabels, root, executors, launcher"
+controller: Controller điều phối
+queue: Build Queue
+agent: "Permanent agent\nexecutor → workspace\ntoolchain + service user"
+config -> agent
+controller -> queue
+queue -> agent: Có node phù hợp
+queue -> queue: Không có node phù hợp
+agent -> controller: Log/trạng thái
 ```
 
 Một build chỉ rời queue khi controller tìm được node `Online`, thỏa label expression và còn executor trống. Sau khi executor được cấp, agent tạo hoặc chọn workspace dưới remote root, chạy step rồi trả executor. `Offline`, `temporarily offline` hoặc agent mất kết nối đều làm capacity của node không còn dùng được cho allocation mới.

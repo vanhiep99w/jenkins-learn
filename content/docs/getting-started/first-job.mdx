@@ -75,14 +75,14 @@ Freestyle job không đồng nghĩa với Pipeline. Job là đơn vị Jenkins t
 
 Luồng lab là: Jenkins checkout một repository công khai → agent chạy lệnh → Console Output in revision và file kết quả → build kết thúc `SUCCESS`.
 
-```text
-Repository Git công khai ──checkout──► workspace trên agent
-                                           │
-                                           ▼
-                                  Execute shell / batch
-                                           │
-                                           ▼
-                         Console Output + trạng thái build
+```d2 title="Lab: chạy Freestyle job đầu tiên"
+direction: right
+repo: Repository Git công khai {icon: ../../assets/d2/git.svg}
+workspace: Workspace trên agent
+command: Execute shell / batch
+result: Console Output + trạng thái build
+repo -> workspace: Checkout
+workspace -> command -> result
 ```
 
 ### Chuẩn bị source và xác nhận branch

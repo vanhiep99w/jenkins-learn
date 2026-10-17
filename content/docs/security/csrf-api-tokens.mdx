@@ -43,19 +43,34 @@ Bạn cũng có thể thiết kế automation có identity riêng, TLS, endpoint
 
 ### Luồng crumb và API token
 
-```mermaid
-flowchart TD
-  A[Client gửi request HTTPS] --> B{Request chỉ đọc?}
-  B -->|GET/HEAD không side effect| C[Authentication và authorization]
-  B -->|POST/PUT/DELETE có side effect| D{Kiểu xác thực?}
-  D -->|Browser session hoặc password| E[Lấy crumb từ crumb issuer]
-  E --> F[Gửi session cookie và crumb header]
-  D -->|Username và API token| G[Core hiện đại thường miễn crumb]
-  F --> H[Authorization trên endpoint hoặc job]
-  G --> H
-  C --> H
-  H -->|Đủ permission| I[Controller xử lý request]
-  H -->|Thiếu permission hoặc crumb không hợp lệ| J[401 hoặc 403; chẩn đoán không tắt CSRF]
+```d2 interactive title="Luồng crumb và API token"
+direction: down
+A: "Client gửi request HTTPS"
+B: "Request chỉ đọc?" {
+  shape: diamond
+}
+C: "Authentication và authorization"
+D: "Kiểu xác thực?" {
+  shape: diamond
+}
+E: "Lấy crumb từ crumb issuer"
+F: "Gửi session cookie và crumb\nheader"
+G: "Core hiện đại thường miễn crumb"
+H: "Authorization trên endpoint hoặc\njob"
+I: "Controller xử lý request"
+J: "401 hoặc 403; chẩn đoán không\ntắt CSRF"
+
+A -> B
+B -> C: "GET/HEAD không side effect"
+B -> D: "POST/PUT/DELETE có side effect"
+D -> E: "Browser session hoặc password"
+E -> F
+D -> G: "Username và API token"
+F -> H
+G -> H
+C -> H
+H -> I: "Đủ permission"
+H -> J: "Thiếu permission hoặc crumb\nkhông hợp lệ"
 ```
 
 Sơ đồ mô tả Jenkins core. Plugin, security realm, crumb issuer thay thế, reverse proxy và phiên bản controller có thể làm thay đổi chi tiết runtime; hãy xác minh trên instance trước khi automation ghi dữ liệu.

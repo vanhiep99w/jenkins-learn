@@ -81,19 +81,27 @@ Trên [Jenkins Plugins](https://plugins.jenkins.io/), đánh giá plugin theo nh
 
 Một plugin có thể yêu cầu Jenkins core tối thiểu, Java/runtime, một plugin API hoặc plugin triển khai cụ thể. Các dependency này tạo **dependency graph**: chọn một plugin gốc có thể kéo nhiều dependency chuyển tiếp. Nâng một dependency chung có thể ảnh hưởng nhiều plugin không nằm trong ticket ban đầu.
 
-```text
-plugin cần thay đổi ──► dependency A ──► Jenkins core tối thiểu
-        │                       │
-        ├──────────────────────► dependency B ──► Java/runtime
-        │
-        └──────────────────────► Pipeline, SCM, credential, agent behavior
-
-Update Center / plugin manager giải dependency
-        │
-        ▼
-planned version set ──► staging ──► một wave ──► restart + smoke test
-                                      │
-                                      └── fail ──► rollback từ baseline
+```d2 interactive title="Tương thích và dependency graph"
+direction: right
+plugin: Plugin cần thay đổi
+a: Dependency A
+core: Jenkins core tối thiểu
+b: Dependency B
+java: Java/runtime
+behavior: Pipeline, SCM, credential, agent behavior
+manager: Update Center / plugin manager
+plan: Planned version set
+staging: Staging
+wave: Một wave
+smoke: Restart + smoke test
+rollback: Rollback từ baseline
+plugin -> a -> core
+plugin -> b -> java
+a -> b
+plugin -> behavior
+manager -> plan: Giải dependency
+plan -> staging -> wave -> smoke
+wave -> rollback: Fail
 ```
 
 Đừng downgrade riêng một dependency để ép một plugin cũ chạy. Cũng không copy file `.jpi` từ host khác: graph thực tế, core requirement và metadata của source có thể khác. Dùng danh sách version đã resolve ở staging làm input review cho production.
@@ -140,17 +148,27 @@ Một policy thực tế không dùng alias như `latest`. Nó định nghĩa ve
 
 ### Luồng thay đổi một wave
 
-```text
-Inventory + SBOM ──► review policy/provenance ──► staging matrix
-       │                         │                         │
-       │                         └── no-go ──► giữ baseline │
-       ▼                                                   ▼
-backup đã kiểm chứng ◄── change approval ◄── version set đã resolve
-       │
-       ▼
-update một wave ──► restart có kiểm soát ──► health + Pipeline/agent test
-       │                                                  │
-       └── fail / timeout ──► giữ evidence ──► restore baseline hoặc disable
+```d2 interactive title="Luồng thay đổi một wave"
+direction: right
+inventory: Inventory + SBOM
+review: Review policy/provenance
+staging: Staging matrix
+baseline: Giữ baseline
+versions: Version set đã resolve
+approval: Change approval
+backup: Backup đã kiểm chứng
+wave: Update một wave
+restart: Restart có kiểm soát
+test: Health + Pipeline/agent test
+evidence: Giữ evidence
+restore: Restore baseline hoặc disable
+inventory -> review -> staging -> versions -> approval -> backup
+inventory -> backup
+review -> baseline: No-go
+backup -> wave -> restart -> test
+wave -> evidence: Fail / timeout
+test -> evidence: Fail / timeout
+evidence -> restore
 ```
 
 1. **Review và freeze.** Liệt kê graph, advisory, owner, restart impact và thay đổi configuration liên quan. Đóng băng thay đổi plugin/configuration khác để staging không lệch production.

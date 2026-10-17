@@ -55,22 +55,40 @@ Sau bài này, bạn có thể thiết kế một Jenkins Multibranch Pipeline p
 | Agent | Checkout và chạy Jenkinsfile của revision được chọn | Source có quyền dùng credential, network hoặc deploy. |
 | Protected branch/MR policy | Yêu cầu review/status trước merge | Authorization Jenkins, credential scope hoặc isolation agent. |
 
-```mermaid
-flowchart LR
-  A[GitLab push hoặc MR event] --> B[Webhook endpoint plugin]
-  B --> C[Validate token và event]
-  C --> D[Index Multibranch]
-  D --> E[Branch hoặc MR child job]
-  E --> F[Checkout revision và Jenkinsfile]
-  F --> G{Trust tier?}
-  G -->|Untrusted MR or fork| H[Ephemeral CI: test không secret]
-  G -->|Protected branch after merge| I[Trusted lane: release gates]
-  H --> J[Commit status theo context]
-  I --> J
-  J --> K[GitLab MR/protected branch policy]
+```d2 interactive title="Các thành phần và ranh giới"
+direction: right
+A: "GitLab push hoặc MR event" {
+  icon: "../../assets/d2/gitlab.svg"
+}
+B: "Webhook endpoint plugin"
+C: "Validate token và event"
+D: "Index Multibranch"
+E: "Branch hoặc MR child job"
+F: "Checkout revision và Jenkinsfile"
+G: "Trust tier?" {
+  shape: diamond
+}
+H: "Ephemeral CI: test không secret"
+I: "Trusted lane: release gates"
+J: "Commit status theo context"
+K: "GitLab MR/protected branch\npolicy" {
+  icon: "../../assets/d2/gitlab.svg"
+}
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> H: "Untrusted MR or fork"
+G -> I: "Protected branch after merge"
+H -> J
+I -> J
+J -> K
 ```
 
-Repository này đã cấu hình renderer Mermaid trong `source.config.ts`; khi copy tài liệu sang một Fumadocs khác, cần renderer tương đương. Sơ đồ là mô hình policy, không phải bằng chứng plugin đã chạy.
+Repository này đã cấu hình plugin D2 của `@vanhiep99w/docs-kit` trong `source.config.ts`; khi copy tài liệu sang site khác, cần đăng ký plugin, component và CSS tương ứng. Sơ đồ là mô hình policy, không phải bằng chứng plugin đã chạy.
 
 ### GitLab.com và self-managed
 

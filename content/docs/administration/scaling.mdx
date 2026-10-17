@@ -50,28 +50,21 @@ Trước thay đổi, ghi baseline trong một cửa sổ đại diện gồm pe
 
 ### Sơ đồ topology tham chiếu
 
-```text
-                         Git/SCM, registry, test service
-                                      │
-                                      │ webhook, clone, pull/push
-                                      ▼
-┌───────────────┐             ┌──────────────────────────┐
-│ Người dùng/API│ ──────────► │ Jenkins controller       │
-└───────────────┘             │ queue, config, metadata  │
-                              │ một writer JENKINS_HOME  │
-                              └───────┬─────────┬────────┘
-                                      │         │ backup đã kiểm chứng
-                         Remoting/API │         ▼
-                                      │   ┌───────────────┐
-                                      │   │ Backup/offsite│
-                                      │   │ restore drill │
-                                      │   └───────────────┘
-                    ┌─────────────────┼──────────────────┐
-                    ▼                 ▼                  ▼
-          ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-          │ linux-small    │ │ docker-isolated│ │ k8s ephemeral  │
-          │ 1+ executors   │ │ 1 executor     │ │ quota/pod pool │
-          └────────────────┘ └────────────────┘ └────────────────┘
+```d2 title="Sơ đồ topology tham chiếu"
+direction: right
+scm: "Git/SCM, registry\ntest service"
+user: Người dùng/API
+controller: "Jenkins controller\nqueue, config, metadata\nmột writer JENKINS_HOME"
+backup: "Backup/offsite\nrestore drill"
+linux: "linux-small\n1+ executors"
+docker: "docker-isolated\n1 executor" {icon: ../../assets/d2/docker.svg}
+k8s: "k8s ephemeral\nquota/pod pool" {icon: ../../assets/d2/kubernetes.svg}
+scm -> controller: Webhook, clone, pull/push
+user -> controller
+controller -> backup: Backup đã kiểm chứng
+controller -> linux: Remoting/API
+controller -> docker: Remoting/API
+controller -> k8s: Remoting/API
 ```
 
 Sơ đồ tách ba luồng: controller ghi state, agent chạy workload, và storage backup bảo vệ state. Artifact, console log và workspace có lifecycle riêng; không mặc định chúng đều thuộc cùng một volume hoặc cùng một chính sách retention.

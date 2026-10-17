@@ -94,20 +94,16 @@ Image là mẫu chỉ đọc chứa Jenkins core, Java runtime và entrypoint. C
 
 Image chính thức đặt `JENKINS_HOME` tại `/var/jenkins_home`. Thư mục này chứa cấu hình, plugin, credential được mã hóa, job, build history và nhiều trạng thái vận hành khác. Vì vậy phải mount một persistent volume vào đúng đường dẫn này.
 
-```text
-┌──────────────── Docker host ────────────────┐
-│                                             │
-│  image: jenkins/jenkins:<version>-jdk21     │
-│              │ tạo                          │
-│              ▼                              │
-│  ┌──────────────────────┐                   │
-│  │ Jenkins container    │                   │
-│  │ HTTP 8080            │                   │
-│  │ Agent TCP 50000      │                   │
-│  │ /var/jenkins_home ───┼──► named volume   │
-│  └──────────────────────┘     jenkins_home  │
-│                                             │
-└─────────────────────────────────────────────┘
+```d2 title="Image container và persistent volume"
+direction: right
+host: Docker host {
+  icon: ../../assets/d2/docker.svg
+  image: "jenkins/jenkins\n<version>-jdk21"
+  controller: "Jenkins container\nHTTP 8080\nAgent TCP 50000"
+  volume: "Named volume\njenkins_home" {shape: cylinder}
+  image -> controller: Tạo
+  controller -> volume: /var/jenkins_home
+}
 ```
 
 Xóa container không xóa named volume. Ngược lại, `docker compose down --volumes`, `docker volume rm` hoặc `docker volume prune` có thể xóa dữ liệu nếu volume không còn được container tham chiếu.
@@ -137,10 +133,21 @@ WebSocket agent đi qua cổng `443` của reverse proxy nên thường đơn gi
 
 Cài Docker Engine hoặc Docker Desktop từ tài liệu chính thức. Docker Compose v2 được gọi bằng `docker compose`, không phải binary cũ `docker-compose`.
 
-```bash
-docker version
-docker compose version
-docker info --format 'Server={{.ServerVersion}} OS={{.OperatingSystem}} Architecture={{.Architecture}}'
+```terminal-session
+title: Kiểm tra Docker trước khi tạo lab
+context:
+  kind: local
+  label: Máy cài Docker Engine hoặc Docker Desktop
+steps:
+  - id: version
+    command: docker version
+    expected: Có thông tin Client và Server; nếu chỉ có Client, kiểm tra daemon và quyền truy cập.
+  - id: compose
+    command: docker compose version
+    expected: CLI nhận lệnh Docker Compose v2.
+  - id: info
+    command: docker info --format 'Server={{.ServerVersion}} OS={{.OperatingSystem}} Architecture={{.Architecture}}'
+    expected: Xác nhận version daemon, OS và kiến trúc trước khi chọn image.
 ```
 
 Trên Linux, user chạy lệnh phải có quyền dùng Docker daemon. Thành viên nhóm `docker` gần như có quyền root trên host, vì vậy chỉ cấp quyền này cho tài khoản quản trị phù hợp.

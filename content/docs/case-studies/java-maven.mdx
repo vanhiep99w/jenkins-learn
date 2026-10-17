@@ -39,24 +39,24 @@ Một Pipeline Java đáng tin cậy không chỉ gọi `mvn package`. Nó biế
 
 Luồng khuyến nghị là:
 
-```text
-Checkout revision
-      │
-      ▼
-Xác nhận JDK và Maven Wrapper ──► resolve dependency qua mirror/cache được quản trị
-      │
-      ▼
-./mvnw -B -ntp verify
-      │                 │
-      │                 └── Surefire/Failsafe XML được publish cả khi test đỏ
-      ▼
-Package JAR/WAR + checksum + SBOM
-      │
-      ▼
-Quality/security gate ──► archive artifact của build
-      │
-      ▼
-Publish version bất biến ──► promote ──► deploy ──► rollback artifact đã biết
+```d2 interactive title="Bối cảnh và mục tiêu"
+direction: right
+checkout: Checkout revision
+tools: Xác nhận JDK và Maven Wrapper
+mirror: Resolve dependency qua mirror/cache được quản trị
+verify: ./mvnw -B -ntp verify
+reports: Surefire/Failsafe XML cả khi test đỏ
+package: Package JAR/WAR + checksum + SBOM
+gate: Quality/security gate
+archive: Archive artifact của build
+publish: Publish version bất biến
+promote: Promote
+deploy: Deploy
+rollback: Rollback artifact đã biết
+checkout -> tools -> verify -> package -> gate -> publish -> promote -> deploy -> rollback
+tools -> mirror
+verify -> reports
+gate -> archive
 ```
 
 ### Mục tiêu học tập

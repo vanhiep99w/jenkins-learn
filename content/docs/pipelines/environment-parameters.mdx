@@ -108,22 +108,15 @@ Lần đầu Jenkins chạy một Jenkinsfile mới có `parameters`, UI của m
 
 Sơ đồ này mô tả thứ tự các scope bao quanh một `sh` trong stage. Scope gần process hơn có thể che cùng tên biến từ scope ngoài trong thời gian nó còn hiệu lực.
 
-```text
-Jenkins/controller, node hoặc agent environment
-                 │
-                 ▼
-pipeline-level environment { APP_NAME, LOG_LEVEL=info }
-                 │
-                 ▼
-stage-level environment    { LOG_LEVEL=debug }
-                 │
-                 ▼
-withEnv(['LOG_LEVEL=trace']) { sh ... }
-                 │
-                 ▼
-process shell đọc APP_NAME và LOG_LEVEL=trace
-
-params.DEPLOY_TIER ──► namespace Pipeline riêng; chỉ dùng khi Jenkinsfile đọc nó
+```d2 title="Bản đồ scope"
+direction: right
+baseline: Jenkins/controller, node hoặc agent env
+pipeline: "Pipeline-level environment\nAPP_NAME, LOG_LEVEL=info"
+stage: "Stage-level environment\nLOG_LEVEL=debug"
+overlay: "withEnv\nLOG_LEVEL=trace"
+process: Shell đọc APP_NAME và LOG_LEVEL=trace
+params: "params.DEPLOY_TIER\nnamespace riêng, chỉ dùng khi\nJenkinsfile đọc nó"
+baseline -> pipeline -> stage -> overlay -> process
 ```
 
 | Nguồn giá trị | Phạm vi điển hình | Thời điểm hết hiệu lực | Dùng cho |
@@ -151,21 +144,44 @@ Không dùng precedence để vượt policy. Một `withEnv` có thể đổi `
 
 `withEnv` phù hợp khi một process riêng cần biến khác mà không muốn làm rò giá trị sang step kế tiếp. Đây là một Pipeline step, nên availability cụ thể phụ thuộc bộ plugin Pipeline của controller; kiểm tra **Pipeline Syntax** trên chính Jenkins của bạn.
 
-```groovy
-stage('Diagnostic an toàn') {
-  environment {
-    LOG_LEVEL = 'debug'
-  }
-  steps {
-    withEnv(['LOG_LEVEL=trace']) {
-      sh '''
-        set -eu
-        printf '%s\n' "inside=$LOG_LEVEL"
-      '''
+Diff chỉ thay scope của lệnh diagnostic: bản trước đọc `debug`, bản sau tạm đọc `trace`. Cả hai vẫn kiểm tra `debug` ở step kế tiếp. Đây là fragment stage, đặt bên trong `stages` của Declarative Pipeline.
+
+```code-diff
+title: Override LOG_LEVEL chỉ trong một block
+language: groovy
+wordDiff: true
+before:
+  label: Stage trước khi thêm withEnv
+  code: |-
+    stage('Diagnostic an toàn') {
+      environment {
+        LOG_LEVEL = 'debug'
+      }
+      steps {
+        sh '''
+          set -eu
+          printf '%s\n' "inside=$LOG_LEVEL"
+        '''
+        sh 'test "$LOG_LEVEL" = "debug"'
+      }
     }
-    sh 'test "$LOG_LEVEL" = "debug"'
-  }
-}
+after:
+  label: Stage với override tạm thời
+  code: |-
+    stage('Diagnostic an toàn') {
+      environment {
+        LOG_LEVEL = 'debug'
+      }
+      steps {
+        withEnv(['LOG_LEVEL=trace']) {
+          sh '''
+            set -eu
+            printf '%s\n' "inside=$LOG_LEVEL"
+          '''
+        }
+        sh 'test "$LOG_LEVEL" = "debug"'
+      }
+    }
 ```
 
 Trong block, shell nhận `trace`; sau block, test xác nhận stage-level `debug` đã trở lại. Dùng triple single quote cho script nhiều dòng để Groovy không nội suy `$LOG_LEVEL` trước shell. Việc quote đúng không làm input không tin cậy an toàn: giải pháp chính vẫn là không đưa input tự do vào script.

@@ -110,24 +110,18 @@ Một bản sao nhất quán có các file phản ánh cùng một thời điể
 
 Tham khảo hướng dẫn [Docker](/docs/installation/docker), [Linux](/docs/installation/linux), [Kubernetes](/docs/installation/kubernetes) và [Windows](/docs/installation/windows) để đối chiếu cách cài đặt. Với agent chạy container hoặc Pod, xem [Docker agents](/docs/agents/docker-agents) và [Kubernetes agents](/docs/agents/kubernetes-agents).
 
-```text
-                 điểm khôi phục đã kiểm chứng
-┌──────────────┐  quiet down / stop  ┌────────────────┐
-│ Jenkins      │ ─────────────────►  │ JENKINS_HOME   │
-│ controller   │                     │ + keys + data  │
-└──────┬───────┘                     └───────┬────────┘
-       │                                     │ snapshot / archive
-       │                                     ▼
-       │                           ┌────────────────────┐
-       │                           │ encrypted backup   │
-       │                           │ checksum + manifest│
-       │                           └─────────┬──────────┘
-       │                                     │ offsite copy
-       ▼                                     ▼
-┌──────────────────┐               ┌────────────────────┐
-│ controller cô lập│ ◄──────────── │ kho lưu trữ tách   │
-│ restore + verify │               │ quyền truy cập     │
-└──────────────────┘               └────────────────────┘
+```d2 title="Docker, package/systemd và Kubernetes"
+direction: right
+controller: "Jenkins controller"
+home: "JENKINS_HOME\nkeys + data" {shape: cylinder}
+backup: "Encrypted backup\nchecksum + manifest"
+offsite: "Kho offsite\nquyền truy cập tách biệt" {shape: cylinder}
+restore: "Controller cô lập\nrestore + verify"
+controller -> home: "Quiet down / stop\nđiểm khôi phục đã kiểm chứng"
+home -> backup: Snapshot / archive
+backup -> offsite: Offsite copy
+offsite -> restore
+controller -> restore: Khôi phục đã kiểm chứng {style.stroke-dash: 4}
 ```
 
 ## Chính sách bảo vệ bản sao

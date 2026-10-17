@@ -102,25 +102,41 @@ Jenkins Credential ID có thể xuất hiện trong Jenkinsfile, nhưng giá tr�
 
 Sơ đồ trạng thái bên dưới làm rõ các đường không được “đi tiếp”: quality fail không được vào approval, abort không tự deploy, và rollback chỉ bắt đầu khi có bằng chứng trạng thái đích cùng quyết định đã ghi nhận.
 
-```mermaid
-stateDiagram-v2
-  [*] --> Built: CI build một artifact
-  Built --> Rejected: provenance hoặc integrity fail
-  Built --> DevDeploy: tests, scans, policy pass
-  DevDeploy --> Rejected: deploy/health dev fail
-  DevDeploy --> StagingDeploy: gate dev pass
-  StagingDeploy --> Rejected: deploy/health staging fail
-  StagingDeploy --> AwaitingApproval: evidence + change record đủ
-  AwaitingApproval --> Aborted: timeout hoặc approver abort
-  AwaitingApproval --> ProductionDeploy: approver được phép accept
-  ProductionDeploy --> Released: rollout và health pass
-  ProductionDeploy --> RollbackPending: deploy/health fail hoặc alert được xác nhận
-  RollbackPending --> RolledBack: previous immutable release + verification pass
-  RollbackPending --> Rejected: rollback không an toàn hoặc chưa rõ trạng thái đích
-  Released --> [*]
-  Rejected --> [*]
-  Aborted --> [*]
-  RolledBack --> [*]
+```d2 interactive title="Luồng release và các trạng thái"
+direction: right
+start: "Bắt đầu" {shape: circle}
+Built: "Built"
+Rejected: "Rejected"
+DevDeploy: "Dev Deploy"
+StagingDeploy: "Staging Deploy"
+AwaitingApproval: "Awaiting Approval"
+Aborted: "Aborted"
+ProductionDeploy: "Production Deploy"
+Released: "Released"
+RollbackPending: "Rollback Pending"
+RolledBack: "Rolled Back"
+end_Released: "Kết thúc" {shape: circle}
+end_Rejected: "Kết thúc" {shape: circle}
+end_Aborted: "Kết thúc" {shape: circle}
+end_RolledBack: "Kết thúc" {shape: circle}
+
+start -> Built: "CI build một artifact"
+Built -> Rejected: "provenance hoặc integrity fail"
+Built -> DevDeploy: "tests, scans, policy pass"
+DevDeploy -> Rejected: "deploy/health dev fail"
+DevDeploy -> StagingDeploy: "gate dev pass"
+StagingDeploy -> Rejected: "deploy/health staging fail"
+StagingDeploy -> AwaitingApproval: "evidence + change record đủ"
+AwaitingApproval -> Aborted: "timeout hoặc approver abort"
+AwaitingApproval -> ProductionDeploy: "approver được phép accept"
+ProductionDeploy -> Released: "rollout và health pass"
+ProductionDeploy -> RollbackPending: "deploy/health fail hoặc alert\nđược xác nhận"
+RollbackPending -> RolledBack: "previous immutable release +\nverification pass"
+RollbackPending -> Rejected: "rollback không an toàn hoặc chưa\nrõ trạng thái đích"
+Released -> end_Released
+Rejected -> end_Rejected
+Aborted -> end_Aborted
+RolledBack -> end_RolledBack
 ```
 
 `Rejected`, `Aborted` và `RolledBack` là các kết quả có giá trị audit, không phải trạng thái để chỉnh thành `SUCCESS`. Giữ build URL, stage/log reference đã redact, artifact digest, decision và owner để lần release sau có thể phân tích nguyên nhân.

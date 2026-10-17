@@ -39,15 +39,14 @@ SSH launcher cho phép Jenkins controller mở một phiên SSH đến Linux hos
 
 Luồng SSH launch đi từ controller đến agent. Plugin **SSH Build Agents** xác thực phiên SSH bằng credential đã chọn, kiểm tra host key theo strategy đã cấu hình, rồi dùng shell từ xa để tìm Java và chạy `agent.jar`. `agent.jar` là chương trình Jenkins Remoting: nó tạo kênh điều khiển để controller cấp work cho agent và nhận log, trạng thái. Plugin có thể sao chép hoặc cập nhật JAR cần thiết trong phiên SSH; người vận hành không nên tải một JAR ngẫu nhiên từ Internet rồi chạy trên agent.
 
-```text
-┌──────────────┐  TCP 22 hoặc port SSH đã duyệt  ┌──────────────────┐
-│ Controller   │ ─────────────────────────────►  │ Linux agent      │
-│ SSH launcher │  credential + host key check    │ service account  │
-└──────┬───────┘                                 └────────┬─────────┘
-       │                                                  │
-       │ SSH channel                                      │ java -jar agent.jar
-       └──────────── Jenkins Remoting ────────────────────┘
-                         queue, work, log, trạng thái
+```d2 title="Kết nối SSH và Remoting"
+direction: right
+controller: "Controller\nSSH launcher"
+agent: "Linux agent\nservice account"
+remoting: "Jenkins Remoting\nqueue, work, log, trạng thái"
+controller -> agent: "TCP 22 / SSH port đã duyệt\ncredential + host key check"
+agent -> remoting: java -jar agent.jar
+controller <-> remoting: SSH channel
 ```
 
 `agent.jar` và Remoting là runtime để Jenkins điều phối agent, không phải một bước build của repository. Khi phiên SSH hoặc tiến trình Java từ xa mất, node thành `Offline`; executor đang chạy không được giả định sẽ tiếp tục an toàn sau reconnect. Kiểm tra trạng thái Pipeline, workspace và output trước khi retry.

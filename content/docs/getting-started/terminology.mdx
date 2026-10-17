@@ -29,18 +29,29 @@ Trang này dùng một pipeline nhỏ để nối các thuật ngữ Jenkins v�
 
 ## Bản đồ thuật ngữ
 
-```mermaid
-flowchart LR
-  A[Job: cấu hình] --> B[Build / run: một lần thực thi]
-  B --> C[Pipeline]
-  C --> D[Stage]
-  D --> E[Step]
-  E --> F[Agent trên node]
-  F --> G[Executor và workspace]
-  E --> H[Credential cung cấp secret]
-  E --> I[Artifact được lưu sau build]
-  J[Plugin] -. bổ sung loại job, step hoặc tích hợp .-> A
-  J -.-> E
+```d2 title="Bản đồ thuật ngữ"
+direction: right
+A: "Job: cấu hình"
+B: "Build / run: một lần thực thi"
+C: "Pipeline"
+D: "Stage"
+E: "Step"
+F: "Agent trên node"
+G: "Executor và workspace"
+H: "Credential cung cấp secret"
+I: "Artifact được lưu sau build"
+J: "Plugin"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+E -> H
+E -> I
+J -> A: "bổ sung loại job, step hoặc tích\nhợp" {style.stroke-dash: 4}
+J -> E {style.stroke-dash: 4}
 ```
 
 ### Job, build và run

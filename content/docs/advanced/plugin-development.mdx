@@ -49,22 +49,23 @@ Plugin không nên là nơi đặt logic nghiệp vụ độc lập duy nhất. 
 
 ### Kiến trúc và vòng đời
 
-```text
-Source / test / POM
-        │  Maven đóng gói HPI
-        ▼
-Jenkins controller ── nạp plugin ──► extension registry
-        │                                  │
-        │                           Descriptor / UI / Step
-        │                                  │
-        ▼                                  ▼
-config.xml, request, Pipeline ──► validation + permission check
-                                           │
-                                           ▼
-                               API Jenkins hoặc Remoting đã giới hạn
-                                           │
-                                           ▼
-                                  agent thực thi workload (nếu cần)
+```d2 interactive title="Kiến trúc và vòng đời"
+direction: right
+source: Source / test / POM
+controller: Jenkins controller
+registry: Extension registry
+extension: Descriptor / UI / Step
+input: Config.xml, request, Pipeline
+validation: Validation + permission check
+api: API Jenkins / Remoting đã giới hạn
+agent: Agent thực thi workload nếu cần
+source -> controller: Maven đóng gói HPI
+controller -> registry: Nạp plugin
+registry -> extension
+controller -> input
+input -> validation
+extension -> validation
+validation -> api -> agent
 ```
 
 Lúc khởi động, Jenkins đọc metadata và dependency plugin, nạp classloader, rồi phát hiện extension. `Plugin#start()` chỉ nên thực hiện khởi tạo nhỏ, có thể đảo ngược; không chạy migration lớn, I/O mạng không giới hạn hay workload build trong lúc boot. Nếu cần tài nguyên nền, phải có shutdown rõ ràng và giới hạn retry để không kéo chậm controller.
@@ -423,25 +424,27 @@ CI nên chạy nhanh: format/lint, unit và harness test trên pull request; ch�
 
 ### Luồng build–test–release
 
-```text
-Pull request
-    │
-    ▼
-format + static analysis ── fail ──► sửa source, không publish
-    │ pass
-    ▼
-compile + unit + JenkinsRule ── fail ──► triage fixture/API/security
-    │ pass
-    ▼
-dependency/license/SBOM diff + advisory review
-    │ pass
-    ▼
-integration / ATH / PCT khi thay đổi yêu cầu
-    │ pass
-    ▼
-release review ──► tag + artifact từ CI đã phê duyệt ──► staging rollout
-                                                        │
-                                                        └── rollback plan/evidence
+```d2 interactive title="Luồng build–test–release"
+direction: right
+pr: Pull request
+format: Format + static analysis
+fix: Sửa source, không publish
+test: Compile + unit + JenkinsRule
+triage: Triage fixture/API/security
+review: Dependency/license/SBOM diff + advisory review
+integration: Integration / ATH / PCT nếu yêu cầu
+release: Release review
+artifact: Tag + artifact từ CI đã phê duyệt
+staging: Staging rollout
+rollback: Rollback plan/evidence
+pr -> format
+format -> fix: Fail
+format -> test: Pass
+test -> triage: Fail
+test -> review: Pass
+review -> integration: Pass
+integration -> release: Pass
+release -> artifact -> staging -> rollback
 ```
 
 Build tái lập bắt đầu bằng source revision, JDK, Maven wrapper hoặc Maven version, repository/mirror và dependency versions đã pin. Chạy CI ở môi trường sạch khi có thể; không dựa vào artifact còn sót trong local repository để chứng minh build hợp lệ. Những lệnh tham khảo ở local CI là:

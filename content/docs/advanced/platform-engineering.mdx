@@ -136,21 +136,32 @@ Jenkins golden path nên công khai các giả định sau trước khi team dù
 
 Kiến trúc tham chiếu dưới đây tách control plane Jenkins khỏi workload plane và các hệ thống sở hữu policy riêng. Tên công cụ cụ thể có thể thay đổi, nhưng ranh giới và evidence cần giữ nguyên.
 
-```mermaid
-flowchart LR
-  Dev[Developer hoặc template portal] --> Catalog[Service catalog\nowner + template version]
-  Catalog --> SCM[SCM repository\nPR + review]
-  SCM -->|webhook đã xác thực| Ctrl[Jenkins controller\nJCasC + RBAC + queue]
-  Ctrl -->|route theo tenant/trust| Trusted[Agent pool tin cậy\nrelease workload]
-  Ctrl -->|route tách biệt| Untrusted[Ephemeral agent pool\nPR/untrusted workload]
-  Trusted --> Artifact[Artifact repository\nimmutable digest]
-  Untrusted --> Artifact
-  Artifact --> Delivery[Delivery API\npolicy + approval]
-  Ctrl --> Obs[Observability\nmetrics, logs, alerts]
-  Trusted --> Obs
-  Delivery --> Audit[Audit/change system]
-  Ctrl --> Audit
-  Catalog --> Audit
+```d2 interactive title="Luồng và ranh giới thành phần"
+direction: right
+Dev: "Developer hoặc template portal"
+Catalog: "Service catalog\nowner + template version"
+SCM: "SCM repository\nPR + review"
+Ctrl: "Jenkins controller\nJCasC + RBAC + queue"
+Trusted: "Agent pool tin cậy\nrelease workload"
+Untrusted: "Ephemeral agent pool\nPR/untrusted workload"
+Artifact: "Artifact repository\nimmutable digest"
+Delivery: "Delivery API\npolicy + approval"
+Obs: "Observability\nmetrics, logs, alerts"
+Audit: "Audit/change system"
+
+Dev -> Catalog
+Catalog -> SCM
+SCM -> Ctrl: "webhook đã xác thực"
+Ctrl -> Trusted: "route theo tenant/trust"
+Ctrl -> Untrusted: "route tách biệt"
+Trusted -> Artifact
+Untrusted -> Artifact
+Artifact -> Delivery
+Ctrl -> Obs
+Trusted -> Obs
+Delivery -> Audit
+Ctrl -> Audit
+Catalog -> Audit
 ```
 
 Controller giữ queue, job configuration và build state; nó không chạy workload thông thường. Agent thực thi checkout/build/test trong pool có label và trust level rõ ràng. SCM vẫn là nơi review source/Jenkinsfile. Artifact repository là nơi sở hữu artifact immutable. Delivery API và policy engine quyết định quyền triển khai; observability thu tín hiệu thay vì nhận secret.
@@ -182,24 +193,24 @@ Quyết định cần ghi rõ: use case, options đã xét, owner, version/core 
 
 Luồng dưới đây giữ thay đổi quan trọng ở SCM và chỉ chuyển artifact/evidence qua boundary. Việc deploy thực tế nằm ở delivery system; Jenkins hoàn tất handoff chứ không mặc nhiên sở hữu production.
 
-```mermaid
-sequenceDiagram
-  participant D as Developer
-  participant C as Catalog/template
-  participant S as SCM
-  participant R as Reviewer
-  participant J as Jenkins
-  participant A as Artifact repository
-  participant X as Delivery API
-  D->>C: Chọn service type và khai báo owner
-  C-->>D: Skeleton + template version + metadata
-  D->>S: Tạo branch và PR
-  R->>S: Review code, Jenkinsfile, metadata
-  S-->>J: Webhook cho commit đã review
-  J->>J: Validate policy/schema, build và test
-  J->>A: Publish artifact immutable + digest
-  J->>X: Handoff digest + evidence reference
-  X-->>D: Request ID hoặc trạng thái chờ approval
+```d2 title="Workflow từ template đến handoff"
+shape: sequence_diagram
+D: "Developer"
+C: "Catalog/template"
+S: "SCM"
+R: "Reviewer"
+J: "Jenkins"
+A: "Artifact repository"
+X: "Delivery API"
+D -> C: "Chọn service type và khai báo\nowner"
+C -> D: "Skeleton + template version +\nmetadata" {style.stroke-dash: 4}
+D -> S: "Tạo branch và PR"
+R -> S: "Review code, Jenkinsfile,\nmetadata"
+S -> J: "Webhook cho commit đã review" {style.stroke-dash: 4}
+J -> J: "Validate policy/schema, build và\ntest"
+J -> A: "Publish artifact immutable +\ndigest"
+J -> X: "Handoff digest + evidence\nreference"
+X -> D: "Request ID hoặc trạng thái chờ\napproval" {style.stroke-dash: 4}
 ```
 
 1. Developer chọn template đã phát hành, tên service và team owner trong catalog. Template tạo repository/skeleton nhưng không tạo credential thật.

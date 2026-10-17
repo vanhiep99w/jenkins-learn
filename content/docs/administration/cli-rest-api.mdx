@@ -54,21 +54,16 @@ Quy ước thực tế là tách automation thành hai đường. **Read-only** 
 
 ## Mô hình request và ranh giới tin cậy
 
-```text
-┌───────────────────┐   HTTPS, auth, timeout    ┌──────────────────────┐
-│ Script / CLI user │ ─────────────────────────►│ Reverse proxy + TLS  │
-└───────────────────┘                           └──────────┬───────────┘
-          ▲                                                │ private HTTP(S)
-          │ status, JSON, CLI output                       ▼
-          │                                      ┌──────────────────────┐
-          └───────────────────────────────────── │ Jenkins controller   │
-                                                 │ authz + crumb + audit│
-                                                 └──────────┬───────────┘
-                                                            │
-                                                            ▼
-                                                 ┌──────────────────────┐
-                                                 │ Job / queue / agent  │
-                                                 └──────────────────────┘
+```d2 title="Mô hình request và ranh giới tin cậy"
+direction: right
+client: Script / CLI user
+proxy: Reverse proxy + TLS
+controller: "Jenkins controller\nauthz + crumb + audit"
+work: Job / queue / agent
+client -> proxy: HTTPS, auth, timeout
+proxy -> controller: Private HTTP(S)
+controller -> client: Status, JSON, CLI output
+controller -> work
 ```
 
 Client chỉ gọi URL HTTPS canonical của controller. Reverse proxy kết thúc TLS hoặc chuyển tiếp TLS, áp dụng giới hạn ở edge và **không** để upstream Jenkins/port controller lộ trực tiếp ra Internet. Proxy phải hỗ trợ upload, redirect và WebSocket khi CLI/agent cần chúng; đặt timeout đủ lớn cho endpoint hợp lệ nhưng không vô hạn. Cấu hình URL public, forwarded headers và TLS nhất quán trước khi debug API; xem [Jenkins sau Reverse Proxy và TLS](/docs/installation/reverse-proxy-tls).
@@ -201,6 +196,51 @@ curl --fail-with-body --silent --show-error \
 ```
 
 Range trong `tree` là giới hạn dữ liệu response, không phải cursor giao dịch. Khi cần quét dài, dùng các cửa sổ nhỏ, lưu watermark bền vững (ví dụ build number đã xử lý), chấp nhận dữ liệu thay đổi giữa hai request và không mặc định `depth=2` sẽ rẻ. Kiểm tra `tree` trên Jenkins sandbox vì plugin/job type có thể bổ sung field hoặc list khác.
+
+Transcript dưới đây là **minh họa tĩnh**, không gọi Jenkins. Credential header được lược bỏ; request thực tế vẫn cần authentication và quyền đọc như phần trên. Dữ liệu, tên job và kết quả lỗi chỉ là mẫu, không phải schema bảo đảm của mọi controller.
+
+```protocol-exchange
+title: HTTP Remote API — đọc job được phép thấy
+variants:
+  - id: ok
+    title: 200 — đọc thành công
+    request:
+      method: GET
+      url: https://jenkins.example.invalid/jenkins/api/json?tree=jobs%5Bname%2Curl%5D
+      headers:
+        - id: accept
+          name: Accept
+          value: application/json
+    response:
+      status: 200
+      statusText: OK
+      headers:
+        - id: content
+          name: Content-Type
+          value: application/json
+      body:
+        kind: json
+        json: |-
+          {
+            "jobs": [
+              {
+                "name": "example-readonly-job",
+                "url": "https://jenkins.example.invalid/jenkins/job/example-readonly-job/"
+              }
+            ]
+          }
+  - id: denied
+    title: 403 — thiếu quyền đọc (minh họa)
+    request:
+      method: GET
+      url: https://jenkins.example.invalid/jenkins/api/json?tree=jobs%5Bname%2Curl%5D
+    response:
+      status: 403
+      statusText: Forbidden
+      body:
+        kind: text
+        text: "Access denied: kiểm tra Overall/Read và scope job theo policy sandbox. Body thực tế có thể khác."
+```
 
 ### URL encoding, status và timeout
 

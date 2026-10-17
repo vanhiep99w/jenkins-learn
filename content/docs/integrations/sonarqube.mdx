@@ -53,24 +53,44 @@ Sau bài này, bạn có thể nối một revision **trusted** Jenkins với pr
 | Jenkins Pipeline | Chạy command, chờ task và quyết định flow | Token, TLS, project permission hay webhook tự đúng. |
 | Webhook | Báo task/Gate result về Jenkins | Authentication của scanner hoặc branch protection SCM. |
 
-```mermaid
-flowchart LR
-  A[PR hoặc fork] --> B[Agent isolated: unit và coverage]
-  B --> C[Không remote Sonar, không credential]
-  D[Revision trusted sau merge] --> E[Agent trusted chạy scanner]
-  E --> F[SonarQube analysis report]
-  F --> G[Compute Engine task]
-  G --> H{Task terminal?}
-  H -->|SUCCESS| I[Evaluate Quality Gate]
-  H -->|FAILED or CANCELED| J[Failure evidence]
-  I --> K[Webhook tới Jenkins endpoint]
-  K --> L[waitForQualityGate]
-  L --> M{Gate đạt policy?}
-  M -->|Có| N[Tiếp tục lane được phép]
-  M -->|Không| O[Chặn promotion, giữ evidence]
+```d2 interactive title="Các thành phần và ranh giới"
+direction: right
+A: "PR hoặc fork"
+B: "Agent isolated: unit và coverage"
+C: "Không remote Sonar, không\ncredential"
+D: "Revision trusted sau merge"
+E: "Agent trusted chạy scanner"
+F: "SonarQube analysis report"
+G: "Compute Engine task"
+H: "Task terminal?" {
+  shape: diamond
+}
+I: "Evaluate Quality Gate"
+J: "Failure evidence"
+K: "Webhook tới Jenkins endpoint"
+L: "waitForQualityGate"
+M: "Gate đạt policy?" {
+  shape: diamond
+}
+N: "Tiếp tục lane được phép"
+O: "Chặn promotion, giữ evidence"
+
+A -> B
+B -> C
+D -> E
+E -> F
+F -> G
+G -> H
+H -> I: "SUCCESS"
+H -> J: "FAILED or CANCELED"
+I -> K
+K -> L
+L -> M
+M -> N: "Có"
+M -> O: "Không"
 ```
 
-Repository này có renderer Mermaid trong `source.config.ts`; sơ đồ mô tả flow, không phải bằng chứng runtime integration đã chạy.
+Repository này render D2 lúc build qua `source.config.ts`; sơ đồ mô tả flow, không phải bằng chứng runtime integration đã chạy.
 
 ### Server và Cloud
 

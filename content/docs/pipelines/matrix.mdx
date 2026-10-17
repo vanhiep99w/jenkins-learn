@@ -100,17 +100,28 @@ Một `axis` trong `exclude` có thể có nhiều `values`; đó là cách lo�
 
 Matrix fan-out sau khi Jenkins xác định các combination hợp lệ. Mỗi cell xin agent, chạy nested stages và ghi log riêng. Stage đặt sau Matrix là **fan-in**: nó chỉ được chạy sau khi Matrix hoàn tất theo flow bình thường. Vì vậy nó là vị trí phù hợp để tổng hợp report hoặc chuyển sang một kiểm tra tiếp theo, không phải nơi suy đoán cell nào đã chạy từ một file workspace cục bộ.
 
-```mermaid
-flowchart LR
-  A[Axes: PLATFORM x JAVA_VERSION] --> B[Loại excludes]
-  B --> C[linux + JDK 17]
-  B --> D[linux + JDK 21]
-  B --> E[windows + JDK 17]
-  C --> F{Fan-in: tất cả cell bắt buộc đạt?}
-  D --> F
-  E --> F
-  F -->|Có| G[Stage tổng hợp sandbox]
-  F -->|Không| H[Pipeline FAILURE: đọc cell lỗi]
+```d2 title="Fan-out, fan-in và giới hạn combination"
+direction: right
+A: "Axes: PLATFORM x JAVA_VERSION"
+B: "Loại excludes"
+C: "linux + JDK 17"
+D: "linux + JDK 21"
+E: "windows + JDK 17"
+F: "Fan-in: tất cả cell bắt buộc\nđạt?" {
+  shape: diamond
+}
+G: "Stage tổng hợp sandbox"
+H: "Pipeline FAILURE: đọc cell lỗi"
+
+A -> B
+B -> C
+B -> D
+B -> E
+C -> F
+D -> F
+E -> F
+F -> G: "Có"
+F -> H: "Không"
 ```
 
 Số cell dự kiến là tích số lượng values trên từng axis, trừ các combination bị exclude. Với ba axis mỗi axis bốn giá trị, trước filter đã có `4 × 4 × 4 = 64` cell. Con số này tăng nhanh hơn cảm nhận từ Jenkinsfile ngắn.

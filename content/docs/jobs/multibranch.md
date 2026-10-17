@@ -58,23 +58,15 @@ Ví dụ, job cha `store-ci` có thể tạo các job con `main`, `feature/payme
 
 ### Vòng đời từ sự kiện SCM đến build
 
-```text
-Push, tag hoặc Pull Request thay đổi
-                │
-                ▼
-      Webhook hoặc lịch quét của job cha
-                │
-                ▼
-  Jenkins indexing: đọc Branch Source + discovery traits
-                │
-                ▼
- Tạo/cập nhật/đánh dấu job con theo Jenkinsfile và policy
-                │
-                ▼
- Job con chọn revision, chạy Pipeline trên agent phù hợp
-                │
-                ▼
- Build record, status, log, report và artifact của chính job con
+```d2 title="Vòng đời từ sự kiện SCM đến build"
+direction: right
+change: Push, tag hoặc Pull Request thay đổi
+trigger: Webhook / lịch quét job cha
+index: Indexing Branch Source + discovery traits
+children: Tạo/cập nhật/đánh dấu job con theo Jenkinsfile + policy
+run: Job con chọn revision, chạy Pipeline trên agent phù hợp
+result: Build record, status, log, report, artifact của job con
+change -> trigger -> index -> children -> run -> result
 ```
 
 Indexing là bước quản lý inventory. Một push có thể làm source plugin vừa phát hiện lại branch vừa trigger build, nhưng cách mapping sự kiện sang scan/build là khả năng của plugin và cấu hình instance. Mở log **Scan Repository** hoặc activity của job cha để phân biệt lỗi khám phá với lỗi trong Console Output của một job con.

@@ -45,20 +45,17 @@ Trong giao diện Jenkins, **Manage Jenkins → System** chứa các thiết l�
 
 Đường đi của một giá trị cần được hiểu trước khi đổi nó:
 
-```text
-Quản trị viên / configuration repository
-                  │ review và phê duyệt
-                  ▼
-Manage Jenkins → System / Tools hoặc JCasC
-                  │ lưu cấu hình instance
-                  ▼
-Controller ── xếp queue, tạo URL, tích hợp proxy/email
-                  │ cấp build cho node phù hợp
-                  ▼
-Agent ── nhận tool đã khai báo và environment của build
-                  │
-                  ▼
-Jenkinsfile ── thêm scope stage/block cho riêng Pipeline
+```d2 title="Ranh giới và bản đồ cấu hình"
+direction: right
+owner: Quản trị viên / configuration repository
+config: "Manage Jenkins\nSystem / Tools hoặc JCasC"
+controller: "Controller\nqueue, URL, proxy/email"
+agent: "Agent\ntool đã khai báo + build env"
+file: "Jenkinsfile\nscope stage/block riêng"
+owner -> config: Review và phê duyệt
+config -> controller: Lưu cấu hình instance
+controller -> agent: Cấp build cho node phù hợp
+agent -> file
 ```
 
 Mô hình controller, queue và agent được giải thích kỹ hơn tại [Kiến trúc Jenkins](/docs/getting-started/architecture). Thay đổi global có blast radius lớn hơn một `Jenkinsfile`: một URL sai có thể làm hỏng link email và webhook; một proxy sai có thể chặn cập nhật plugin hoặc SCM; một executor sai có thể làm controller quá tải.

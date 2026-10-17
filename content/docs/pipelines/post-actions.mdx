@@ -51,19 +51,31 @@ Ví dụ, nếu `npm test` thất bại, hãy archive `reports/`, `artifacts/` v
 
 ## Luồng, phạm vi và thứ tự thực thi
 
-```mermaid
-flowchart TD
-  A[Stage chạy command] --> B{Kết quả cuối build}
-  B -->|SUCCESS| C[always → success]
-  B -->|FAILURE| D[always → failure]
-  B -->|UNSTABLE| E[always → unstable]
-  B -->|ABORTED / timeout| F[always → aborted]
-  C --> G[Publish report, artifact, log]
-  D --> G
-  E --> G
-  F --> G
-  G --> H[Notification theo policy]
-  H --> I[cleanup: chỉ resource/workspace do build sở hữu]
+```d2 interactive title="Luồng, phạm vi và thứ tự thực thi"
+direction: down
+A: "Stage chạy command"
+B: "Kết quả cuối build" {
+  shape: diamond
+}
+C: "always → success"
+D: "always → failure"
+E: "always → unstable"
+F: "always → aborted"
+G: "Publish report, artifact, log"
+H: "Notification theo policy"
+I: "cleanup: chỉ resource/workspace\ndo build sở hữu"
+
+A -> B
+B -> C: "SUCCESS"
+B -> D: "FAILURE"
+B -> E: "UNSTABLE"
+B -> F: "ABORTED / timeout"
+C -> G
+D -> G
+E -> G
+F -> G
+G -> H
+H -> I
 ```
 
 Sơ đồ là thứ tự thiết kế nên áp dụng: publish bằng chứng trước, notification sau khi đã có URL/build record, và cleanup cuối. Các post condition thực tế có thứ tự xác định bên dưới; đừng dựa vào thứ tự các block bạn vô tình viết trong Jenkinsfile.

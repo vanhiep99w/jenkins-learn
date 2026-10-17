@@ -42,13 +42,18 @@ Reverse proxy kết thúc kết nối TLS của browser hoặc agent, rồi chuy
 
 ### Luồng yêu cầu
 
-```mermaid
-flowchart LR
-  U[Browser hoặc webhook] -->|HTTPS 443| P[Reverse proxy / load balancer]
-  A[Inbound WebSocket agent] -->|WSS qua HTTPS 443| P
-  P -->|HTTP riêng tư + forwarded headers| J[Jenkins controller\n127.0.0.1:8080/jenkins]
-  J -->|absolute URL, redirect, crumb| P
-  P --> U
+```d2 title="Luồng yêu cầu"
+direction: right
+U: "Browser hoặc webhook"
+P: "Reverse proxy / load balancer"
+A: "Inbound WebSocket agent"
+J: "Jenkins controller\n127.0.0.1:8080/jenkins"
+
+U -> P: "HTTPS 443"
+A -> P: "WSS qua HTTPS 443"
+P -> J: "HTTP riêng tư + forwarded\nheaders"
+J -> P: "absolute URL, redirect, crumb"
+P -> U
 ```
 
 Điểm mấu chốt của sơ đồ là controller không suy ra được HTTPS chỉ từ kết nối HTTP nội bộ. Proxy phải khẳng định URL public bằng header đáng tin cậy, còn Jenkins phải được cấu hình với URL public đó.

@@ -36,20 +36,21 @@ Jenkins Configuration as Code (JCasC) biến phần cấu hình **mà plugin Con
 
 Plugin [Configuration as Code](https://plugins.jenkins.io/configuration-as-code/) đọc YAML và gọi các Jenkins descriptor mà core hoặc plugin đã cung cấp. Nhờ vậy, cấu hình controller như message, URL, security realm, authorization strategy, tool definition và một số cấu hình plugin có thể đi qua pull request thay vì chỉ tồn tại trong UI.
 
-```text
-Git repository ── review ──► YAML bundle đã duyệt
-                                  │ mount/copy chỉ-đọc
-                                  ▼
-                         CASC_JENKINS_CONFIG
-                                  │
-                                  ▼
-                    Plugin Configuration as Code
-                     │ schema + descriptors hiện có
-                     ▼
-       Jenkins core + plugin tương thích trên controller
-                     │
-                     ▼
-         UI/runtime state ── export/compare ──► drift report
+```d2 title="JCasC giải quyết gì và không giải quyết gì?"
+direction: right
+git: Git repository {icon: ../../assets/d2/git.svg}
+bundle: YAML bundle đã duyệt
+config: CASC_JENKINS_CONFIG
+plugin: Configuration as Code
+core: Jenkins core + plugin tương thích
+runtime: UI/runtime state
+report: Drift report
+git -> bundle: Review
+bundle -> config: Mount/copy chỉ-đọc
+config -> plugin
+plugin -> core: Schema + descriptors hiện có
+core -> runtime
+runtime -> report: Export/compare
 ```
 
 JCasC hữu ích nhất khi controller được dựng từ image/manifest có version pin, plugin list đã kiểm thử và `JENKINS_HOME` có backup. Nó tạo **desired configuration**, không biến mọi dữ liệu trong home thành bất biến.

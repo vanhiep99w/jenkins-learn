@@ -196,22 +196,21 @@ Quy trình release nên là: merge qua review → test revision commit → tạo
 
 ## Luồng gọi và điểm kiểm soát
 
-```mermaid
-sequenceDiagram
-  participant A as Author/SCM
-  participant J as Jenkins controller
-  participant R as SCM retriever
-  participant P as Jenkinsfile caller
-  participant L as Shared Library
-  participant S as Sandbox or trusted runtime
-
-  A->>R: reviewed tag or commit SHA
-  P->>J: @Library(name@revision)
-  J->>R: checkout with read-only access
-  R-->>J: vars/, src/, resources/
-  J->>L: resolve API and classes
-  L->>S: execute under library trust policy
-  S-->>P: step result, log, build status
+```d2 title="Luồng gọi và điểm kiểm soát"
+shape: sequence_diagram
+A: "Author/SCM"
+J: "Jenkins controller"
+R: "SCM retriever"
+P: "Jenkinsfile caller"
+L: "Shared Library"
+S: "Sandbox or trusted runtime"
+A -> R: "reviewed tag or commit SHA"
+P -> J: "@Library(name@revision)"
+J -> R: "checkout with read-only access"
+R -> J: "vars/, src/, resources/" {style.stroke-dash: 4}
+J -> L: "resolve API and classes"
+L -> S: "execute under library trust\npolicy"
+S -> P: "step result, log, build status" {style.stroke-dash: 4}
 ```
 
 Điểm quyết định nằm trước khi code chạy: SCM review bảo vệ revision; retriever access bảo vệ việc đọc source; cấu hình library quyết định global/folder và trust; authorization/Script Approval giới hạn capability. Sau đó, log và build result là evidence của lần gọi, không thay thế cho các kiểm soát trước đó. Mô hình execution chung xem [Tổng quan Jenkins Pipeline](/docs/pipelines/overview) và cấu hình controller xem [Cấu hình hệ thống Jenkins](/docs/administration/system-configuration).

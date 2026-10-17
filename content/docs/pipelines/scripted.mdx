@@ -78,22 +78,19 @@ Workspace là thư mục làm việc trên agent, không phải kho lưu trữ a
 
 ### Luồng từ queue đến dọn dẹp
 
-```text
-Jenkinsfile được nạp
-        │
-        ▼
-node('linux') yêu cầu label
-        │
-        ├── Không có executor phù hợp ──► build chờ trong queue
-        │
-        ▼
-agent + executor được cấp, workspace sẵn sàng
-        │
-        ▼
-checkout → stage → Pipeline steps → kết quả build
-        │
-        ▼
-finally chạy dọn workspace, executor được trả lại
+```d2 title="Luồng từ queue đến dọn dẹp"
+direction: right
+file: Jenkinsfile được nạp
+node: "node('linux') yêu cầu label"
+queue: Build chờ queue
+allocation: Agent + executor, workspace sẵn sàng
+run: Checkout → stage → Pipeline steps → kết quả
+cleanup: Finally dọn workspace, trả executor
+file -> node
+node -> queue: Không có executor phù hợp
+queue -> allocation: Được cấp executor
+node -> allocation: Có executor phù hợp
+allocation -> run -> cleanup
 ```
 
 Sơ đồ cho thấy `finally` là nơi thích hợp cho vệ sinh cục bộ vì nó chạy cả khi phần `try` thành công lẫn khi một step ném exception. Nó không thay thế retention policy, cleanup ở cấp agent hoặc quản trị dung lượng đĩa.

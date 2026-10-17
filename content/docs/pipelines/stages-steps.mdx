@@ -36,17 +36,21 @@ description: "Chia Jenkins Pipeline thành stage và step rõ ràng, dễ quan s
 
 Một **stage** là một chặng có kết quả mà con người cần nhận biết, chẳng hạn `Unit test` hoặc `Build package`. Một **step** là hành động cụ thể bên trong chặng đó, chẳng hạn `sh 'npm test'`. Agent là môi trường thực thi: nó quyết định hệ điều hành, toolchain, workspace và executor thật sự chạy step.
 
-```text
-Commit → controller xếp hàng → agent phù hợp → workspace
-                                             │
-                                             ▼
-                                  Checkout source
-                                             │
-                                             ▼
-                                  Unit test ── lỗi → log stage Test
-                                             │
-                                             ▼
-                                  Build package → artifact/kết quả
+```d2 title="Mô hình stage step và agent"
+direction: right
+commit: Commit
+controller: Controller xếp hàng
+agent: Agent phù hợp
+workspace: Workspace
+checkout: Checkout source
+test: Unit test
+log: Log stage Test
+build: Build package
+artifact: Artifact/kết quả
+commit -> controller -> agent -> workspace -> checkout -> test
+test -> log: Lỗi
+test -> build: Đạt
+build -> artifact
 ```
 
 Controller hiển thị trạng thái stage và tập hợp console log, còn lệnh chạy trên agent. Vì vậy, một Jenkinsfile đúng cú pháp vẫn có thể chờ trong queue nếu không có agent mang label yêu cầu, hoặc thất bại nếu agent thiếu `node`, `npm`, shell hay quyền trên workspace. Nền tảng về controller, queue, executor và workspace được giải thích tại [Kiến trúc Jenkins](/docs/getting-started/architecture).

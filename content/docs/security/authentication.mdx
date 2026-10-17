@@ -41,19 +41,32 @@ Một security realm biến bằng chứng đăng nhập thành một Jenkins id
 
 ### Luồng đăng nhập
 
-```mermaid
-flowchart TD
-  A[Người dùng mở Jenkins URL chuẩn] --> B{Security realm}
-  B -->|Local| C[Built-in user database]
-  B -->|LDAP plugin| D[LDAP qua TLS hoặc LDAPS]
-  B -->|OIDC/SAML plugin| E[Redirect đến IdP]
-  E --> F[Callback HTTPS tại Jenkins]
-  C --> G[Identity và group đã xác minh]
-  D --> G
-  F --> G
-  G --> H[Authorization strategy đánh giá permissions]
-  H --> I[Session Jenkins và UI/API theo quyền]
-  B -->|Lỗi hoặc unavailable| J[Thông báo lỗi an toàn; dùng recovery process nếu được phê duyệt]
+```d2 interactive title="Luồng đăng nhập"
+direction: down
+A: "Người dùng mở Jenkins URL chuẩn"
+B: "Security realm" {
+  shape: diamond
+}
+C: "Built-in user database"
+D: "LDAP qua TLS hoặc LDAPS"
+E: "Redirect đến IdP"
+F: "Callback HTTPS tại Jenkins"
+G: "Identity và group đã xác minh"
+H: "Authorization strategy đánh giá\npermissions"
+I: "Session Jenkins và UI/API theo\nquyền"
+J: "Thông báo lỗi an toàn; dùng\nrecovery process nếu được phê\nduyệt"
+
+A -> B
+B -> C: "Local"
+B -> D: "LDAP plugin"
+B -> E: "OIDC/SAML plugin"
+E -> F
+C -> G
+D -> G
+F -> G
+G -> H
+H -> I
+B -> J: "Lỗi hoặc unavailable"
 ```
 
 Sơ đồ mô tả luồng logic. Callback path, cookie và cách plugin lấy group khác nhau theo plugin/version; hãy lấy chúng từ giao diện và tài liệu của plugin đang chạy.

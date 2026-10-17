@@ -38,23 +38,16 @@ Labels quyết định *loại môi trường* mà một job được phép dùn
 
 Controller nhận build, đưa yêu cầu vào queue, rồi tìm một node đang `Online` thỏa label expression và có executor trống. Chỉ khi đó agent mới nhận được allocation và workspace để chạy lệnh. Vì vậy, một executor rảnh trên agent `windows` không giúp được job đang yêu cầu `linux && docker`.
 
-```text
-Job / Pipeline
-      │ yêu cầu label expression
-      ▼
-┌─────────────────────────────┐
-│ Build Queue                 │
-│ controller kiểm tra:        │
-│ online + label + policy +   │
-│ executor trống              │
-└──────────────┬──────────────┘
-               │ điều kiện đều đạt
-               ▼
-┌─────────────────────────────┐
-│ Executor trên agent phù hợp │
-│        ↓                    │
-│ Workspace → checkout → run  │
-└─────────────────────────────┘
+```d2 title="Mô hình định tuyến"
+direction: right
+job: Job / Pipeline
+queue: "Build Queue\nonline + label + policy\n+ executor trống"
+executor: Executor trên agent phù hợp
+workspace: Workspace
+run: Checkout / run
+job -> queue: Yêu cầu label expression
+queue -> executor: Điều kiện đều đạt
+executor -> workspace -> run
 ```
 
 [Kiến trúc Jenkins](/docs/getting-started/architecture) giải thích controller, queue và workspace ở mức nền tảng. Trang này tập trung vào quyết định label, concurrency và cách đọc tình trạng chờ.

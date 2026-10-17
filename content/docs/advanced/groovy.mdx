@@ -100,21 +100,34 @@ Pipeline: Groovy biến đổi phần lớn Pipeline Groovy bằng **CPS** (Cont
 
 ### Sơ đồ thực thi
 
-```mermaid
-flowchart TD
-  A[Jenkinsfile đã được SCM/review] --> B[Declarative parse hoặc Scripted evaluation]
-  B --> C[Groovy được CPS transform]
-  C --> D[Controller gọi Pipeline step]
-  D --> E[Agent thực hiện sh / tool]
-  E --> F[Checkpoint: state serializable]
-  F --> G{Controller restart?}
-  G -->|Không| H[Stage tiếp theo]
-  G -->|Có| I[Nạp execution state]
-  I --> H
-  H --> J[Build result và log]
+```d2 interactive title="Sơ đồ thực thi"
+direction: down
+A: "Jenkinsfile đã được SCM/review"
+B: "Declarative parse hoặc Scripted\nevaluation"
+C: "Groovy được CPS transform"
+D: "Controller gọi Pipeline step"
+E: "Agent thực hiện sh / tool"
+F: "Checkpoint: state serializable"
+G: "Controller restart?" {
+  shape: diamond
+}
+H: "Stage tiếp theo"
+I: "Nạp execution state"
+J: "Build result và log"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> H: "Không"
+G -> I: "Có"
+I -> H
+H -> J
 ```
 
-Sơ đồ dùng Mermaid; repository này đã có remark plugin chuyển fenced block `mermaid` thành component hiển thị. Checkpoint không phải lời hứa rằng mọi câu lệnh Groovy đều được lưu ngay lập tức. Thiết kế đúng là để state sống qua step có thể serialization được và để mỗi bước có thể quan sát lại qua log/artifact.
+Sơ đồ D2 được render lúc build qua `@vanhiep99w/docs-kit`. Checkpoint không phải lời hứa rằng mọi câu lệnh Groovy đều được lưu ngay lập tức. Thiết kế đúng là để state sống qua step có thể serialization được và để mỗi bước có thể quan sát lại qua log/artifact.
 
 ### Đối tượng nên và không nên giữ
 

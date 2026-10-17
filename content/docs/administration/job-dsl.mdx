@@ -72,20 +72,19 @@ API Viewer phản ánh plugin đang cài, nên là nguồn tra cú pháp trướ
 
 ### Luồng thay đổi có kiểm soát
 
-```text
-Developer
-   │ pull request: jobs/**/*.groovy
-   ▼
-Repository DSL ── review + syntax/API check ──► protected branch
-   │                                             │
-   │ checkout revision đã duyệt                  ▼
-   └──────────────────────────────────────► seed job sandbox
-                                                  │ Job DSL plugin, sandbox enabled
-                                                  ▼
-                                      folder/job generated trong namespace lab
-                                                  │ review result, config diff, log
-                                                  ▼
-                                      promotion seed riêng, scope hẹp
+```d2 title="Luồng thay đổi có kiểm soát"
+direction: right
+dev: Developer
+repo: Repository DSL
+branch: Protected branch
+seed: Seed job sandbox
+generated: "Folder/job generated\nnamespace lab"
+promote: "Promotion seed riêng\nscope hẹp"
+dev -> repo: "Pull request\njobs/**/*.groovy"
+repo -> branch: Review + syntax/API check
+branch -> seed: Checkout revision đã duyệt
+seed -> generated: Job DSL plugin, sandbox enabled
+generated -> promote: Review result, config diff, log
 ```
 
 Seed job là consumer duy nhất được phép áp dụng DSL cho namespace của nó. Repository DSL phải có owner, branch protection và review tương tự source chứa hạ tầng. Một seed chạy từ branch/pull request không tin cậy không được phép cập nhật folder/job dùng chung.

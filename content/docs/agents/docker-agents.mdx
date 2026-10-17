@@ -34,20 +34,34 @@ Docker agent đóng gói toolchain của một build vào container để giảm
 
 Docker không thay Jenkins controller thành một build server. Controller vẫn xếp queue, cấp executor và giữ cấu hình; một Docker-capable agent hoặc Docker cloud mới là nơi nói chuyện với Docker daemon. Bắt đầu từ mô hình controller–agent tại [Tổng quan Jenkins](/docs/getting-started/overview), [Kiến trúc Jenkins](/docs/getting-started/architecture) và [Tổng quan Jenkins Agent](/docs/agents/overview).
 
-```mermaid
-flowchart LR
-  A[Pipeline trong queue] --> B{Cơ chế cấp môi trường}
-  B -->|Docker cloud plugin| C[Provision container agent]
-  C --> D[Agent Remoting online]
-  B -->|Declarative docker agent| E[Executor trên node docker-lab]
-  D --> F[Workspace và build steps]
-  E --> G[Khởi chạy build container từ image]
-  G --> F
-  F --> H[Stop/remove container theo lifecycle]
-  H --> I[Trả executor hoặc retire agent]
+```d2 interactive title="Mô hình và phạm vi"
+direction: right
+A: "Pipeline trong queue"
+B: "Cơ chế cấp môi trường" {
+  shape: diamond
+}
+C: "Provision container agent"
+D: "Agent Remoting online"
+E: "Executor trên node docker-lab" {
+  icon: "../../assets/d2/docker.svg"
+}
+F: "Workspace và build steps"
+G: "Khởi chạy build container từ\nimage"
+H: "Stop/remove container theo\nlifecycle"
+I: "Trả executor hoặc retire agent"
+
+A -> B
+B -> C: "Docker cloud plugin"
+C -> D
+B -> E: "Declarative docker agent"
+D -> F
+E -> G
+G -> F
+F -> H
+H -> I
 ```
 
-Sơ đồ Mermaid cần renderer Mermaid của dự án. Khi đưa tài liệu này sang một Fumadocs khác, hãy cấu hình renderer tương đương trước khi kỳ vọng sơ đồ được vẽ.
+Sơ đồ D2 được render lúc build qua `@vanhiep99w/docs-kit`. Khi đưa tài liệu này sang site khác, cần đăng ký plugin, component và CSS tương ứng.
 
 ### Hai cơ chế Docker không hoán đổi cho nhau
 

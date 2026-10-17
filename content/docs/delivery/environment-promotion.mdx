@@ -89,25 +89,41 @@ Xem [Credentials trong Pipeline](/docs/pipelines/credentials) và [Authorization
 
 ## Luồng promotion và gate
 
-```mermaid
-stateDiagram-v2
-  [*] --> Candidate: build + publish immutable artifact
-  Candidate --> Rejected: integrity, provenance or quality fail
-  Candidate --> Dev: dev gate pass
-  Dev --> Rejected: deploy or health fail
-  Dev --> Staging: dev verification pass
-  Staging --> Rejected: staging gate fail
-  Staging --> AwaitingApproval: evidence + change record complete
-  AwaitingApproval --> Aborted: timeout or explicit abort
-  AwaitingApproval --> Production: authorized approval
-  Production --> Released: rollout and health pass
-  Production --> RollbackPending: failed verification or confirmed alert
-  RollbackPending --> RolledBack: known-good digest verified
-  RollbackPending --> Rejected: target state unknown or rollback unsafe
-  Released --> [*]
-  Rejected --> [*]
-  Aborted --> [*]
-  RolledBack --> [*]
+```d2 interactive title="Luồng promotion và gate"
+direction: right
+start: "Bắt đầu" {shape: circle}
+Candidate: "Candidate"
+Rejected: "Rejected"
+Dev: "Dev"
+Staging: "Staging"
+AwaitingApproval: "Awaiting Approval"
+Aborted: "Aborted"
+Production: "Production"
+Released: "Released"
+RollbackPending: "Rollback Pending"
+RolledBack: "Rolled Back"
+end_Released: "Kết thúc" {shape: circle}
+end_Rejected: "Kết thúc" {shape: circle}
+end_Aborted: "Kết thúc" {shape: circle}
+end_RolledBack: "Kết thúc" {shape: circle}
+
+start -> Candidate: "build + publish immutable\nartifact"
+Candidate -> Rejected: "integrity, provenance or quality\nfail"
+Candidate -> Dev: "dev gate pass"
+Dev -> Rejected: "deploy or health fail"
+Dev -> Staging: "dev verification pass"
+Staging -> Rejected: "staging gate fail"
+Staging -> AwaitingApproval: "evidence + change record\ncomplete"
+AwaitingApproval -> Aborted: "timeout or explicit abort"
+AwaitingApproval -> Production: "authorized approval"
+Production -> Released: "rollout and health pass"
+Production -> RollbackPending: "failed verification or confirmed\nalert"
+RollbackPending -> RolledBack: "known-good digest verified"
+RollbackPending -> Rejected: "target state unknown or rollback\nunsafe"
+Released -> end_Released
+Rejected -> end_Rejected
+Aborted -> end_Aborted
+RolledBack -> end_RolledBack
 ```
 
 `Rejected`, `Aborted` và `RolledBack` là evidence có giá trị. Không biến chúng thành `SUCCESS` chỉ để dashboard đẹp. Giữ release reference, stage/result, decision owner và log đã redact theo retention policy.

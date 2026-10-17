@@ -51,22 +51,39 @@ Mô hình này phù hợp cho test, build và scan có toolchain chuẩn hóa ho
 
 ### Thành phần và ranh giới trách nhiệm
 
-```mermaid
-flowchart LR
-  Q[Build queue trên controller] --> C[Kubernetes cloud trong plugin]
-  C --> A[Kubernetes API]
-  A --> S[Kubernetes scheduler]
-  S --> P[Ephemeral agent pod]
-  P --> J[jnlp hoặc inbound agent]
-  J --> W[Workspace volume dùng chung]
-  W --> T[Tool container: test build scan]
-  T --> R[Artifact repository hoặc SCM]
-  J --> L[Log và trạng thái về controller]
+```d2 interactive title="Thành phần và ranh giới trách nhiệm"
+direction: right
+Q: "Build queue trên controller"
+C: "Kubernetes cloud trong plugin" {
+  icon: "../../assets/d2/kubernetes.svg"
+}
+A: "Kubernetes API" {
+  icon: "../../assets/d2/kubernetes.svg"
+}
+S: "Kubernetes scheduler" {
+  icon: "../../assets/d2/kubernetes.svg"
+}
+P: "Ephemeral agent pod"
+J: "jnlp hoặc inbound agent"
+W: "Workspace volume dùng chung"
+T: "Tool container: test build scan"
+R: "Artifact repository hoặc SCM"
+L: "Log và trạng thái về controller"
+
+Q -> C
+C -> A
+A -> S
+S -> P
+P -> J
+J -> W
+W -> T
+T -> R
+J -> L
 ```
 
 Controller giữ Pipeline definition, build queue, credential policy, trạng thái và log. Nó gọi plugin để provision nhưng **không tự là build executor**; production nên đặt số executor của built-in node bằng `0`. Kubernetes API xác thực và tạo object; scheduler chọn node theo request, affinity, taint, quota và capacity; kubelet mới kéo image và chạy container. Pod agent chỉ là nơi thực thi tạm thời, không phải kho artifact hay nơi lưu Secret lâu dài.
 
-Sơ đồ là Mermaid. Dự án cần renderer Mermaid đã cấu hình để hiển thị sơ đồ; nếu sao chép sang Fumadocs khác, hãy thêm `fumadocs-mermaid` hoặc renderer tương đương.
+Sơ đồ D2 được render lúc build qua `@vanhiep99w/docs-kit`; nếu sao chép sang site khác, hãy đăng ký plugin, component và CSS tương ứng.
 
 ### Vòng đời một pod agent
 

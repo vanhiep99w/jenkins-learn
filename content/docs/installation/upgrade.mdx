@@ -125,16 +125,22 @@ Controller điều phối, giữ queue và dữ liệu. Nó không phải build 
 
 ### Timeline và điểm quyết định
 
-```text
-T-7 đến T-2 ngày        T-1 ngày             Cửa sổ thay đổi                 Sau thay đổi
-Inventory ──► restore   Go/no-go ──► quiet down ─► backup ─► deploy ─► validate ─► evidence
-     │             │            │                 │              │          │
-     │             │            │                 │              │          └─ mở lịch hoặc rollback
-     │             │            │                 │              └─ lỗi boot/plugin/Pipeline?
-     │             │            │                 └─ ID backup + snapshot đã xác nhận
-     │             │            └─ thông báo owner, freeze config và kế hoạch rollback
-     │             └─ backup restore được vào môi trường cô lập
-     └─ matrix Java/OS/plugin/agent/Pipeline hoàn tất
+```d2 title="Timeline và điểm quyết định"
+direction: right
+inventory: "T-7 đến T-2: Inventory\nmatrix Java/OS/plugin/agent/Pipeline"
+restore: "Restore drill\nbackup vào môi trường cô lập"
+go: "T-1: Go/no-go\nowner, freeze config, rollback"
+quiet: Quiet down
+backup: "Backup\nID backup + snapshot đã xác nhận"
+deploy: Deploy
+validate: Validate boot/plugin/Pipeline
+evidence: Evidence
+resume: Mở lịch
+rollback: Rollback
+inventory -> restore -> go -> quiet -> backup -> deploy -> validate -> evidence
+validate -> rollback: Lỗi boot/plugin/Pipeline
+evidence -> resume: Đạt tiêu chí
+evidence -> rollback: Không đạt
 ```
 
 Người phê duyệt cần định nghĩa rõ ai có quyền dừng lịch, ai xác nhận backup, ai theo dõi ứng dụng và thời gian tối đa để quyết định rollback. Ghi các mốc UTC, người thao tác, lệnh/manifest được dùng và link evidence. Không để một thao tác viên vừa thay đổi vừa là nguồn xác nhận duy nhất.

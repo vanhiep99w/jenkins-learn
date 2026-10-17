@@ -62,6 +62,37 @@ Tách thời gian của build thành các phần có thể hành động:
 
 **Critical path** là chuỗi chặng quyết định lúc build hoàn tất. Một `lint` dài 20 giây nằm song song với test 15 phút không làm build ngắn hơn khi giảm xuống 5 giây; test 15 phút mới là ứng viên ưu tiên. Ngược lại, một stage tuần tự chỉ để chờ `input` mà vẫn giữ agent có thể làm queue của mọi build khác dài hơn dù nó không nằm trong lệnh test.
 
+Ví dụ thời gian **giả lập**, không phải benchmark Jenkins: hai kiểm tra bắt đầu cùng lúc, test 900 giây và lint 20 giây. Waterfall dùng chung mốc 0 để thấy lint đã xong nhưng build vẫn chờ test; nó không tự suy ra critical path hay truy vấn tracing backend.
+
+```span-waterfall
+title: Lint ngắn không rút ngắn nhánh test dài
+unit: s
+provenance:
+  kind: illustrative
+  description: Số liệu do tác giả đặt để minh họa parallel fan-in, không đo từ Jenkins.
+spans:
+  - id: checks
+    name: Fan-out đến fan-in
+    service: pipeline
+    start: 0
+    duration: 900
+    status: ok
+  - id: test
+    parent: checks
+    name: Tests
+    service: agent-test
+    start: 0
+    duration: 900
+    status: ok
+  - id: lint
+    parent: checks
+    name: Lint
+    service: agent-lint
+    start: 0
+    duration: 20
+    status: ok
+```
+
 ### Baseline trước mọi thay đổi
 
 Chọn một cửa sổ đại diện: phân nhóm theo job class, pool label, cache warm/cold và giờ cao điểm. Ghi core Jenkins LTS, Java, image agent, plugin và cấu hình durability đang dùng. Không trộn nightly nặng với pull request nhỏ rồi lấy trung bình để kết luận.
@@ -82,22 +113,34 @@ Metrics cho biết tín hiệu tổng quát; đối chiếu timestamp của chú
 
 Controller nhận trigger, xếp queue, diễn giải Pipeline, lưu flow state và phục vụ UI/API. Agent nhận allocation rồi chạy `checkout`, compiler, test, scan và upload từ workspace. Không chuyển vòng lặp xử lý dữ liệu lớn về Groovy trên controller chỉ vì lệnh có thể viết trong Jenkinsfile.
 
-```mermaid
-flowchart LR
-  A[Trigger / SCM event] --> B[Controller: queue và flow engine]
-  B --> C{Label, policy và executor\nđều thỏa?}
-  C -->|Chưa| D[Queue wait: reason, age]
-  D --> C
-  C -->|Rồi| E[Agent allocation + workspace]
-  E --> F[Agent: checkout, build, test, scan]
-  F --> G[Artifact store / report]
-  F --> H[Flow node, log và checkpoint]
-  H --> B
-  G --> I[Fan-in / kết quả build]
-  B --> I
+```d2 interactive title="Controller, agent và critical path"
+direction: right
+A: "Trigger / SCM event"
+B: "Controller: queue và flow engine"
+C: "Label, policy và executor\nđều thỏa?" {
+  shape: diamond
+}
+D: "Queue wait: reason, age"
+E: "Agent allocation + workspace"
+F: "Agent: checkout, build, test,\nscan"
+G: "Artifact store / report"
+H: "Flow node, log và checkpoint"
+I: "Fan-in / kết quả build"
+
+A -> B
+B -> C
+C -> D: "Chưa"
+D -> C
+C -> E: "Rồi"
+E -> F
+F -> G
+F -> H
+H -> B
+G -> I
+B -> I
 ```
 
-Sơ đồ mô tả control path, không có nghĩa source hay artifact luôn đi qua controller. Với Artifact Manager được cấu hình, agent có thể truyền artifact trực tiếp tới storage đích; controller vẫn giữ metadata và điều phối. Sơ đồ Mermaid này được dự án cấu hình để render.
+Sơ đồ mô tả control path, không có nghĩa source hay artifact luôn đi qua controller. Với Artifact Manager được cấu hình, agent có thể truyền artifact trực tiếp tới storage đích; controller vẫn giữ metadata và điều phối. Sơ đồ D2 được render lúc build.
 
 ### Queue, executor và allocation
 

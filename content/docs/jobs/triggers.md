@@ -83,22 +83,22 @@ Webhook là HTTP request do dịch vụ SCM gửi tới endpoint của Jenkins h
 
 ### Luồng sự kiện và revision
 
-```text
-Developer push/PR
-       │
-       ▼
-SCM tạo event có delivery ID, repository, ref và revision
-       │ HTTPS + xác thực chữ ký/token/IP policy
-       ▼
-Reverse proxy / Jenkins endpoint của SCM plugin
-       │ plugin lọc event và tìm job/branch phù hợp
-       ▼
-Jenkins queue ── chờ quiet period, executor và agent ──► build
-       │                                                   │
-       └── lưu cause/delivery metadata                 checkout revision
-                                                            │
-                                                            ▼
-                                               test / policy / kết quả
+```d2 title="Luồng sự kiện và revision"
+direction: right
+dev: Developer push/PR
+event: SCM event + delivery ID, repo, ref, revision
+endpoint: Reverse proxy / SCM plugin endpoint
+queue: Jenkins queue
+build: Build
+checkout: Checkout revision
+result: Test / policy / kết quả
+metadata: Lưu cause/delivery metadata
+dev -> event
+event -> endpoint: HTTPS + chữ ký/token/IP policy
+endpoint -> queue: Lọc event, tìm job/branch phù hợp
+queue -> build: Quiet period, executor, agent
+queue -> metadata
+build -> checkout -> result
 ```
 
 Payload báo **sự kiện**, không phải mặc định là nguồn chân lý duy nhất cho revision. Với Multibranch Pipeline, branch source plugin thường index repository rồi chọn Jenkinsfile/revision theo discovery strategy của nó. Với Pipeline from SCM hoặc Freestyle Git job, cấu hình SCM của job quyết định ref nào được checkout. Hãy xác minh trên build page và console log: repository URL, branch/ref, commit SHA, trigger cause và thời điểm nhận event.

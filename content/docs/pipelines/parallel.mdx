@@ -52,17 +52,28 @@ Trước khi tách nhánh, trả lời rõ các câu hỏi sau:
 
 **Fan-out** là điểm Jenkins mở nhiều nhánh. **Fan-in** là điểm chỉ tiếp tục sau khi các nhánh cần thiết đã kết thúc. Fan-in có thể là stage tổng hợp report, đóng gói hoặc bước tiếp theo chỉ hợp lệ khi mọi kiểm tra bắt buộc đều đạt.
 
-```mermaid
-flowchart LR
-  A[Stage: chuẩn bị revision] --> B[Fan-out: kiểm tra độc lập]
-  B --> C[Unit checks\nagent / workspace A]
-  B --> D[Contract checks\nagent / workspace B]
-  B --> E[Slow smoke\nagent / workspace C]
-  C --> F{Fan-in: mọi nhánh\nbắt buộc đạt?}
-  D --> F
-  E --> F
-  F -->|Có| G[Publish / stage tiếp theo]
-  F -->|Không| H[Pipeline kết thúc\nđọc branch log]
+```d2 title="Fan-out, fan-in và chi phí điều phối"
+direction: right
+A: "Stage: chuẩn bị revision"
+B: "Fan-out: kiểm tra độc lập"
+C: "Unit checks\nagent / workspace A"
+D: "Contract checks\nagent / workspace B"
+E: "Slow smoke\nagent / workspace C"
+F: "Fan-in: mọi nhánh\nbắt buộc đạt?" {
+  shape: diamond
+}
+G: "Publish / stage tiếp theo"
+H: "Pipeline kết thúc\nđọc branch log"
+
+A -> B
+B -> C
+B -> D
+B -> E
+C -> F
+D -> F
+E -> F
+F -> G: "Có"
+F -> H: "Không"
 ```
 
 Mỗi nhánh thêm flow node, log stream, cấp phát agent/workspace và đôi khi checkout/tool download. Fan-out lớn cũng tăng tải controller khi lưu trạng thái và tải agent khi cùng pull dependency. Vì vậy hãy bắt đầu từ vài nhóm test có thời gian đủ dài, đo wall-clock time, queue time và tỉ lệ lỗi, rồi mới thay đổi số nhánh. Song song hóa không làm một test vốn chậm, flaky hoặc phụ thuộc database dùng chung trở nên tốt hơn.

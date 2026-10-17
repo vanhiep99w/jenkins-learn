@@ -49,17 +49,22 @@ Sau case study này, bạn có thể:
 
 ## Mô hình luồng và ranh giới
 
-```text
-commit đã review
-      │
-      ▼
-Node version + lockfile ──► npm ci ──► lint ──► unit ──► integration
-                                                     │
-                                                     ▼
-                                  npm audit ──► build ──► .tgz / image cục bộ
-                                                                        │
-                                                                        ▼
-                               checksum + JUnit + log ──► approval ──► promotion
+```d2 title="Mô hình luồng và ranh giới"
+direction: right
+commit: Commit đã review
+versions: Node version + lockfile
+install: npm ci
+lint: Lint
+unit: Unit
+integration: Integration
+audit: npm audit
+build: Build
+artifact: .tgz / image cục bộ
+evidence: Checksum + JUnit + log
+approval: Approval
+promotion: Promotion
+commit -> versions -> install -> lint -> unit -> integration
+integration -> audit -> build -> artifact -> evidence -> approval -> promotion
 ```
 
 Artifact đi qua promotion phải là output đã kiểm tra, ví dụ `dist/node-jenkins-fixture-1.0.0.tgz` có SHA-256. Không build lại từ source khi đổi môi trường, vì dependency, Node runtime hoặc source checkout có thể đã đổi. Nếu dùng image container, identity đáng tin là image digest đã được registry tổ chức cho phép, không chỉ là một tag có thể di chuyển.

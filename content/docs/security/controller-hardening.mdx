@@ -51,27 +51,30 @@ Sau bài này, bạn có thể lập một baseline có owner và bằng chứng
 
 ### Luồng và hướng kết nối
 
-```mermaid
-flowchart LR
-  U[Người dùng quản trị và automation] -->|HTTPS 443, identity và authorization| P[Reverse proxy tin cậy]
-  S[SCM webhook đã xác thực] -->|HTTPS 443| P
-  P -->|private HTTP hoặc TLS; forwarded headers bị ghi đè| C[Jenkins controller]
-  C -->|HTTPS allowlist: SCM, Update Center, IdP, artifact| E[Egress proxy hoặc dịch vụ đã duyệt]
-  A1[Agent pool untrusted] -->|outbound WSS/HTTPS hoặc transport đã duyệt| P
-  A2[Agent pool trusted-release] -->|flow riêng, egress hẹp hơn| C
-  C --> H[JENKINS_HOME và plugin storage]
-  H --> B[Backup mã hóa, access tách biệt]
+```d2 interactive title="Luồng và hướng kết nối"
+direction: right
+S: "SCM webhook đã xác thực"
+E: "Egress proxy hoặc dịch vụ đã\nduyệt"
+B: "Backup mã hóa, access tách biệt"
+M: "Management network" {
+  U: "Người dùng quản trị và\nautomation"
+  P: "Reverse proxy tin cậy"
+  C: "Jenkins controller"
+  H: "JENKINS_HOME và plugin storage"
+}
+X: "Execution networks tách theo\ntrust tier" {
+  A1: "Agent pool untrusted"
+  A2: "Agent pool trusted-release"
+}
 
-  subgraph M[Management network]
-    U
-    P
-    C
-    H
-  end
-  subgraph X[Execution networks tách theo trust tier]
-    A1
-    A2
-  end
+M.U -> M.P: "HTTPS 443, identity và\nauthorization"
+S -> M.P: "HTTPS 443"
+M.P -> M.C: "private HTTP hoặc TLS; forwarded\nheaders bị ghi đè"
+M.C -> E: "HTTPS allowlist: SCM, Update\nCenter, IdP, artifact"
+X.A1 -> M.P: "outbound WSS/HTTPS hoặc\ntransport đã duyệt"
+X.A2 -> M.C: "flow riêng, egress hẹp hơn"
+M.C -> M.H
+M.H -> B
 ```
 
 Sơ đồ là threat model khởi điểm, không phải một hợp đồng port cố định. Ghi rõ hostname, proxy hop, DNS resolver, transport agent, destination egress và owner thực tế trước khi viết firewall rule. Một agent WebSocket thường tạo kết nối outbound HTTPS đến proxy; inbound TCP và SSH có hướng kết nối khác, nên phải review theo launch method thay vì chỉ mở một cổng “Jenkins”.
@@ -217,26 +220,26 @@ Sau thay đổi proxy/header, xác minh trong sandbox hoặc change window:
 
 ## Chuỗi thay đổi có kiểm soát
 
-```mermaid
-sequenceDiagram
-  participant O as Owner thay đổi
-  participant S as Security/Network reviewer
-  participant J as Jenkins sandbox
-  participant P as Proxy/Platform
-  participant R as Runtime evidence
-
-  O->>S: Threat model, phạm vi, impact và rollback
-  S-->>O: Phê duyệt control/version/advisory review
-  O->>J: Chụp baseline và kiểm thử allow/deny
-  O->>P: Áp dụng một thay đổi nhỏ trong cửa sổ
-  P->>J: Đưa flow/proxy policy mới vào runtime
-  J->>R: Login, API, webhook, agent, UI/static-asset smoke test
-  alt Tiêu chí pass
-    R-->>O: Evidence đã redact; theo dõi sau rollout
-  else Tiêu chí fail hoặc tác động không chấp nhận
-    O->>P: Rollback config/rule đã biết tốt
-    O->>J: Xác nhận phục hồi và mở incident nếu cần
-  end
+```d2 title="Chuỗi thay đổi có kiểm soát"
+shape: sequence_diagram
+O: "Owner thay đổi"
+S: "Security/Network reviewer"
+J: "Jenkins sandbox"
+P: "Proxy/Platform"
+R: "Runtime evidence"
+O -> S: "Threat model, phạm vi, impact và\nrollback"
+S -> O: "Phê duyệt\ncontrol/version/advisory review" {style.stroke-dash: 4}
+O -> J: "Chụp baseline và kiểm thử\nallow/deny"
+O -> P: "Áp dụng một thay đổi nhỏ trong\ncửa sổ"
+P -> J: "Đưa flow/proxy policy mới vào\nruntime"
+J -> R: "Login, API, webhook, agent,\nUI/static-asset smoke test"
+branch1: "alt: Tiêu chí pass" {
+  R -> O: "Evidence đã redact; theo dõi sau\nrollout" {style.stroke-dash: 4}
+}
+branch2: "else: Tiêu chí fail hoặc tác\nđộng không chấp nhận" {
+  O -> P: "Rollback config/rule đã biết tốt"
+  O -> J: "Xác nhận phục hồi và mở incident\nnếu cần"
+}
 ```
 
 Trước change, giữ bản backup nhất quán và đường recovery administrator. Không gộp nâng core, plugin, proxy, authentication và firewall trong một thao tác nếu không có lý do đã review; khi failure xảy ra, cần biết control nào đổi. Đọc [Nâng cấp Jenkins](/docs/installation/upgrade) để xử lý version migration và [Cấu hình hệ thống Jenkins](/docs/administration/system-configuration) cho ownership, drift và change window.

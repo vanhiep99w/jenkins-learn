@@ -43,18 +43,33 @@ Một Jenkinsfile là code chạy qua parser Declarative, Groovy/CPS, plugin, co
 
 Pyramid dưới đây áp dụng cho **mã điều phối Jenkins**. Đáy chạy nhiều và nhanh; càng lên cao càng gần controller thật, đắt hơn và cần ít case đại diện hơn.
 
-```mermaid
-flowchart BT
-  A[Lint Declarative\ncú pháp và cấu trúc] --> B[Unit Pipeline / Shared Library\nmock step, branch, error, retry]
-  B --> C[Contract consumer\nAPI + revision đã pin]
-  C --> D[Integration controller lab\nplugin, sandbox, CPS, agent]
-  D --> E[ATH / smoke runtime\nluồng UI hoặc controller thật]
+```d2 interactive title="Pyramid và luồng gate"
+direction: up
+A: "Lint Declarative\ncú pháp và cấu trúc" {
+  style.fill: "#2563eb"
+  style.font-color: "#fff"
+}
+B: "Unit Pipeline / Shared Library\nmock step, branch, error, retry" {
+  style.fill: "#0f766e"
+  style.font-color: "#fff"
+}
+C: "Contract consumer\nAPI + revision đã pin" {
+  style.fill: "#7c3aed"
+  style.font-color: "#fff"
+}
+D: "Integration controller lab\nplugin, sandbox, CPS, agent" {
+  style.fill: "#b45309"
+  style.font-color: "#fff"
+}
+E: "ATH / smoke runtime\nluồng UI hoặc controller thật" {
+  style.fill: "#b91c1c"
+  style.font-color: "#fff"
+}
 
-  style A fill:#2563eb,color:#fff
-  style B fill:#0f766e,color:#fff
-  style C fill:#7c3aed,color:#fff
-  style D fill:#b45309,color:#fff
-  style E fill:#b91c1c,color:#fff
+A -> B
+B -> C
+C -> D
+D -> E
 ```
 
 Luồng áp dụng cho một pull request (PR) nên đi từ trái sang phải: lint và unit là required check nhanh; contract chạy trên revision library mà consumer pin; integration/acceptance chạy ở lane lab được kiểm soát. Một lỗi lint không cần chờ controller; một lỗi CPS, sandbox hay plugin không được kết luận là không tồn tại chỉ vì unit test xanh.
@@ -297,15 +312,17 @@ Một kịch bản restart có giá trị khi Pipeline/library giữ state qua `
 
 Một pipeline CI cho mã Pipeline có thể dùng thứ tự sau:
 
-```text
-PR Jenkinsfile / Shared Library
-  → check frontmatter/Markdown và link nội bộ tài liệu (nếu thay đổi docs)
-  → Declarative lint (chỉ Jenkinsfile Declarative)
-  → unit src + vars với mock, không network
-  → contract consumer tại revision library pin
-  → integration controller lab: sandbox + plugin + agent
-  → smoke/ATH chọn lọc hoặc restart lane theo lịch/release
-  → publish status, version manifest, report đã redaction
+```d2 title="CI gate và checklist"
+direction: right
+pr: PR Jenkinsfile / Shared Library
+docs: Markdown/frontmatter/link nếu đổi docs
+lint: Declarative lint nếu Jenkinsfile Declarative
+unit: Unit src + vars với mock, không network
+contract: Contract consumer tại library revision pin
+integration: Controller lab sandbox + plugin + agent
+smoke: Smoke/ATH chọn lọc hoặc restart lane theo lịch/release
+status: Publish status, version manifest, report đã redact
+pr -> docs -> lint -> unit -> contract -> integration -> smoke -> status
 ```
 
 Các check required nên chặn merge khi lint, unit hoặc contract fail. Integration/ATH có thể chạy theo branch bảo vệ, release candidate hoặc lịch nếu thời gian/capacity đắt, nhưng phải có owner, SLA, evidence và policy ngăn release khi lane bắt buộc chưa đạt. Không cấp credential release cho PR/fork để làm integration thuận tiện.

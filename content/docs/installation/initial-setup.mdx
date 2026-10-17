@@ -50,17 +50,15 @@ Trước khi tiếp tục, bảo đảm controller chỉ có đường truy cậ
 
 Wizard có thể khác nhẹ theo Jenkins core, plugin và phương thức cài đặt, nhưng luồng an toàn không thay đổi:
 
-```text
-JENKINS_HOME trên host/volume
-          │
-          ▼
-initialAdminPassword ──► Unlock Jenkins ──► plugin có kiểm soát
-                                                    │
-                                                    ▼
-                                     admin account riêng + recovery
-                                                    │
-                                                    ▼
-                             Jenkins URL khớp URL người dùng thực sự dùng
+```d2 title="Luồng setup wizard"
+direction: right
+home: JENKINS_HOME trên host/volume
+password: initialAdminPassword
+unlock: Unlock Jenkins
+plugins: Plugin có kiểm soát
+admin: Admin account riêng + recovery
+url: Jenkins URL khớp URL người dùng thực sự dùng
+home -> password -> unlock -> plugins -> admin -> url
 ```
 
 Sau wizard, xác minh đăng nhập bằng admin riêng. Sau đó đưa cấu hình authentication và authorization production vào hiệu lực trước khi mở rộng quyền cho người dùng hoặc kết nối webhook, SCM và agent.

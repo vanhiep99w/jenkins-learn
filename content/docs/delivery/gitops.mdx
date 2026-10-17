@@ -67,24 +67,40 @@ CI kết thúc khi evidence tạo artifact và config change đã có. CD theo G
 
 Luồng dưới pin một digest xuyên suốt. Digest trong ví dụ là giá trị minh họa hợp lệ về hình dạng; thay bằng digest do registry và evidence của chính build tạo ra.
 
-```mermaid
-flowchart LR
-  A[Commit app repo] --> B[Jenkins CI\ntest scan build]
-  B --> C[Artifact immutable\ndigest + SBOM + provenance/signature]
-  C --> D[Jenkins cập nhật config branch\nvà mở PR]
-  D --> E[Review protected branch\npolicy gate]
-  E --> F[Merge commit config]
-  F --> G[GitOps controller pull/reconcile]
-  G --> H[Sync waves và health checks]
-  H --> I{Healthy?}
-  I -->|Có| J[Runtime evidence\nrevision + digest + health]
-  I -->|Không| K[Pause/failed sync\nđánh giá rollback]
-  K --> L[PR revert hoặc commit\nknown-good digest]
-  L --> G
-  G -. drift detection .-> M[So desired với actual\nreport hoặc self-heal theo policy]
+```d2 interactive title="Kiến trúc và luồng thay đổi"
+direction: right
+A: "Commit app repo"
+B: "Jenkins CI\ntest scan build"
+C: "Artifact immutable\ndigest + SBOM +\nprovenance/signature"
+D: "Jenkins cập nhật config branch\nvà mở PR"
+E: "Review protected branch\npolicy gate"
+F: "Merge commit config"
+G: "GitOps controller pull/reconcile"
+H: "Sync waves và health checks"
+I: "Healthy?" {
+  shape: diamond
+}
+J: "Runtime evidence\nrevision + digest + health"
+K: "Pause/failed sync\nđánh giá rollback"
+L: "PR revert hoặc commit\nknown-good digest"
+M: "So desired với actual\nreport hoặc self-heal theo\npolicy"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> H
+H -> I
+I -> J: "Có"
+I -> K: "Không"
+K -> L
+L -> G
+G -> M: "drift detection" {style.stroke-dash: 4}
 ```
 
-Fumadocs không render Mermaid mặc định. Site cần `fumadocs-mermaid` hoặc cấu hình Mermaid tương đương để sơ đồ hiển thị thay vì một code block; điều này không ảnh hưởng nội dung flow.
+Sơ đồ D2 được render lúc build qua `@vanhiep99w/docs-kit`; nó mô tả luồng GitOps, không thực thi reconciliation.
 
 ### Pull so với push
 

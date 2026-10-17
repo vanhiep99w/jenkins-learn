@@ -79,23 +79,49 @@ Ba permission **Overall** thường bị diễn giải sai:
 
 Dùng cây này cho từng yêu cầu, thay vì bắt đầu bằng role có sẵn:
 
-```mermaid
-flowchart TD
-  A[Yêu cầu capability] --> B{Danh tính và group đã xác minh?}
-  B -->|Chưa| C[Kiểm tra security realm và mapping]
-  B -->|Rồi| D{Object và scope nhỏ nhất?}
-  D -->|Chưa rõ| E[Xác định folder job run agent credential]
-  D -->|Đã rõ| F{Có thể sửa code hoặc cấu hình thực thi?}
-  F -->|Có| G[Đánh giá agent credential SCM và blast radius]
-  F -->|Không| H[Chọn permission đọc hoặc thao tác tối thiểu]
-  G --> I{Có separation of duties hoặc approval độc lập?}
-  I -->|Chưa| J[Thiết kế control trước khi cấp]
-  I -->|Có| K[Chọn strategy và scope hẹp]
-  H --> K
-  K --> L[Test deny allow bằng user sandbox]
-  L --> M{Evidence và rollback đầy đủ?}
-  M -->|Không| N[Không áp dụng]
-  M -->|Có| O[Phê duyệt thay đổi có thời hạn review]
+```d2 interactive title="Cây quyết định cấp quyền"
+direction: down
+A: "Yêu cầu capability"
+B: "Danh tính và group đã xác minh?" {
+  shape: diamond
+}
+C: "Kiểm tra security realm và\nmapping"
+D: "Object và scope nhỏ nhất?" {
+  shape: diamond
+}
+E: "Xác định folder job run agent\ncredential"
+F: "Có thể sửa code hoặc cấu hình\nthực thi?" {
+  shape: diamond
+}
+G: "Đánh giá agent credential SCM và\nblast radius"
+H: "Chọn permission đọc hoặc thao\ntác tối thiểu"
+I: "Có separation of duties hoặc\napproval độc lập?" {
+  shape: diamond
+}
+J: "Thiết kế control trước khi cấp"
+K: "Chọn strategy và scope hẹp"
+L: "Test deny allow bằng user\nsandbox"
+M: "Evidence và rollback đầy đủ?" {
+  shape: diamond
+}
+N: "Không áp dụng"
+O: "Phê duyệt thay đổi có thời hạn\nreview"
+
+A -> B
+B -> C: "Chưa"
+B -> D: "Rồi"
+D -> E: "Chưa rõ"
+D -> F: "Đã rõ"
+F -> G: "Có"
+F -> H: "Không"
+G -> I
+I -> J: "Chưa"
+I -> K: "Có"
+H -> K
+K -> L
+L -> M
+M -> N: "Không"
+M -> O: "Có"
 ```
 
 Cây này là review tĩnh. Nó không chứng minh plugin hoặc Jenkins runtime thực thi đúng policy. Nút hoặc permission UI bị ẩn chỉ là cách trình bày; endpoint và thao tác thay đổi trạng thái vẫn phải bị Jenkins/plugin kiểm tra server-side. Bước `Test deny allow` vẫn bắt buộc trên controller cô lập.

@@ -49,21 +49,34 @@ Không dùng Freestyle như cách tránh quản trị quy trình. Một job có 
 
 Một lần chạy đi qua các thành phần sau. Một plugin có thể thêm trường UI hoặc đổi chính xác hành vi của một bước; vì vậy hãy xác nhận plugin/version trước khi copy cấu hình.
 
-```mermaid
-flowchart LR
-  A[SCM revision] --> B[Trigger: webhook, poll, schedule hoặc Build Now]
-  B --> C[Freestyle project trên controller]
-  C --> D{Node/label khớp và có executor?}
-  D -->|Chưa| E[Build queue]
-  E --> D
-  D -->|Có| F[Workspace trên agent]
-  F --> G[Checkout và build steps]
-  G --> H[Test và tạo artifact/report]
-  H --> I[Publisher/post-build action]
-  I --> J[Retention, kết quả và notification]
+```d2 interactive title="Mô hình job và vòng đời build"
+direction: right
+A: "SCM revision"
+B: "Trigger: webhook, poll, schedule\nhoặc Build Now"
+C: "Freestyle project trên\ncontroller"
+D: "Node/label khớp và có executor?" {
+  shape: diamond
+}
+E: "Build queue"
+F: "Workspace trên agent"
+G: "Checkout và build steps"
+H: "Test và tạo artifact/report"
+I: "Publisher/post-build action"
+J: "Retention, kết quả và\nnotification"
+
+A -> B
+B -> C
+C -> D
+D -> E: "Chưa"
+E -> D
+D -> F: "Có"
+F -> G
+G -> H
+H -> I
+I -> J
 ```
 
-Sơ đồ dùng Mermaid. Fumadocs cần renderer Mermaid được cấu hình thì mới vẽ; nếu chưa cấu hình, block vẫn là nguồn version-control được nhưng chỉ hiện như code.
+Sơ đồ dùng D2 và được render lúc build qua `@vanhiep99w/docs-kit`. Nguồn sơ đồ vẫn nằm trong MDX để review cùng nội dung.
 
 - **SCM** chọn revision để checkout, thường là Git URL, branch/revision và credential đọc repository private.
 - **Build triggers** quyết định khi nào job vào queue: webhook/plugin SCM, polling, lịch định kỳ hoặc người có quyền bấm **Build Now**.

@@ -59,16 +59,16 @@ Không chọn inbound chỉ vì tên gọi. Nếu controller cần truy cập ho
 
 ### Luồng kết nối
 
-```text
-┌──────────────────────┐       HTTPS/WSS hoặc TCP        ┌──────────────────────┐
-│ Host agent           │ ───────────────────────────────►│ Jenkins controller   │
-│ agent.jar            │   agent chủ động khởi tạo       │ node config + queue  │
-│ service account      │ ◄───────────────────────────────│ Remoting channel     │
-└──────────┬───────────┘        lệnh, log, trạng thái    └──────────┬───────────┘
-           │                                                        │
-           │ workspace, toolchain                                   │ chọn node theo
-           ▼                                                        ▼ label + executor
-     Pipeline process                                           Build Queue
+```d2 title="Luồng kết nối"
+direction: right
+host: "Host agent\nagent.jar + service account"
+controller: "Jenkins controller\nnode config + queue"
+process: Pipeline process
+queue: Build Queue
+host -> controller: Agent khởi tạo HTTPS/WSS hoặc TCP
+controller -> host: Remoting lệnh, log, trạng thái
+host -> process: Workspace, toolchain
+controller -> queue: Chọn node theo label + executor
 ```
 
 Secret gắn agent với node đã cấu hình; URL gắn agent với controller mong đợi. Sau khi channel hoạt động, controller có thể gửi work qua channel đó, nhưng agent không cần một inbound connection từ controller vào host. Điều này đặc biệt quan trọng khi viết firewall rule: mở luồng theo **agent → controller**, không đảo chiều chỉ vì controller là bên điều phối.

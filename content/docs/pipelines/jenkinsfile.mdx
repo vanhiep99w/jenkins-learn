@@ -75,51 +75,93 @@ Declarative Pipeline có hình dạng rõ ràng: một khối `pipeline` bao ngo
 
 ### Ví dụ Jenkinsfile hoàn chỉnh
 
-```groovy
-pipeline {
-  agent { label 'linux && node20' }
+```code-walkthrough
+title: Jenkinsfile — đọc theo từng khối
+language: groovy
+snapshots:
+  - id: ci
+    title: Jenkinsfile
+    code: |-
+      pipeline {
+        agent { label 'linux && node20' }
 
-  options {
-    timestamps()
-    disableConcurrentBuilds()
-  }
+        options {
+          timestamps()
+          disableConcurrentBuilds()
+        }
 
-  stages {
-    stage('Checkout') {
-      steps {
-        checkout scm
+        stages {
+          stage('Checkout') {
+            steps {
+              checkout scm
+            }
+          }
+
+          stage('Test') {
+            steps {
+              sh 'node --version'
+              sh 'npm ci'
+              sh 'npm test -- --reporter=junit --outputFile=reports/junit.xml'
+            }
+          }
+
+          stage('Build') {
+            steps {
+              sh 'npm run build'
+              archiveArtifacts artifacts: 'dist/**', fingerprint: true
+            }
+          }
+        }
+
+        post {
+          always {
+            junit testResults: 'reports/junit.xml', allowEmptyResults: true
+            deleteDir()
+          }
+          failure {
+            echo 'Đọc Console Output và test report trước khi chạy lại build.'
+          }
+          success {
+            echo 'CI hoàn tất; artifact đã được lưu cho build này.'
+          }
+        }
       }
-    }
-
-    stage('Test') {
-      steps {
-        sh 'node --version'
-        sh 'npm ci'
-        sh 'npm test -- --reporter=junit --outputFile=reports/junit.xml'
-      }
-    }
-
-    stage('Build') {
-      steps {
-        sh 'npm run build'
-        archiveArtifacts artifacts: 'dist/**', fingerprint: true
-      }
-    }
-  }
-
-  post {
-    always {
-      junit testResults: 'reports/junit.xml', allowEmptyResults: true
-      deleteDir()
-    }
-    failure {
-      echo 'Đọc Console Output và test report trước khi chạy lại build.'
-    }
-    success {
-      echo 'CI hoàn tất; artifact đã được lưu cho build này.'
-    }
-  }
-}
+steps:
+  - id: agent
+    title: Chọn agent và policy
+    description: Label yêu cầu Linux và Node.js 20. Timestamps cần Timestamper; disableConcurrentBuilds giới hạn các run của cùng job.
+    snapshot: ci
+    ranges:
+      - - 1
+        - 7
+  - id: checkout
+    title: Checkout đúng revision
+    description: checkout scm đọc revision mà job đã chọn, trong workspace của agent.
+    snapshot: ci
+    ranges:
+      - - 10
+        - 14
+  - id: test
+    title: Cài dependency và test
+    description: npm ci cần lockfile. Thay reporter flags bằng cú pháp test runner thực tế của dự án.
+    snapshot: ci
+    ranges:
+      - - 16
+        - 22
+  - id: build
+    title: Build và lưu artifact
+    description: Build tạo dist; archiveArtifacts lưu output của run theo policy retention.
+    snapshot: ci
+    ranges:
+      - - 24
+        - 29
+  - id: post
+    title: Report trước cleanup
+    description: always thu JUnit trước deleteDir. Các nhánh failure/success thông báo theo kết quả; thiếu report không có nghĩa test đã chạy.
+    snapshot: ci
+    ranges:
+      - - 32
+        - 43
 ```
 
 Các script test khác nhau có thể không hỗ trợ `--reporter=junit` hoặc `--outputFile`; hãy thay bằng lệnh thực sự của dự án. `allowEmptyResults: true` chỉ tránh làm hỏng bước dọn dẹp khi report chưa được tạo, không biến việc thiếu report thành test đã chạy.

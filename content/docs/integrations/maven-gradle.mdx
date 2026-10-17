@@ -39,19 +39,34 @@ Một build Java tin cậy phải xác định được **JDK nào**, **build to
 
 Sau bài này, bạn có thể chọn wrapper/toolchain phù hợp, tách cache của PR khỏi release, thu report đúng đường dẫn và archive artifact có checksum. Bạn cũng có thể giải thích vì sao test/scan phải hoàn tất trước khi credential publish được bind, và vì sao Jenkins fingerprint không thay SHA-256.
 
-```mermaid
-flowchart LR
-  A[SCM revision đã chọn] --> B[Agent có JDK đã pin]
-  B --> C[Maven Wrapper hoặc Gradle Wrapper]
-  C --> D[Cache/mirror theo trust tier]
-  D --> E[Compile, test và scan]
-  E --> F[JUnit XML]
-  E --> G[Artifact + SHA-256 + metadata]
-  F --> H[Jenkins junit]
-  G --> I[archiveArtifacts + fingerprint]
-  I --> J{Trusted branch và policy pass?}
-  J -->|Có| K[Publish credential scope hẹp]
-  J -->|Không| L[Giữ evidence, không publish]
+```d2 interactive title="Mục tiêu và luồng build"
+direction: right
+A: "SCM revision đã chọn"
+B: "Agent có JDK đã pin"
+C: "Maven Wrapper hoặc Gradle\nWrapper"
+D: "Cache/mirror theo trust tier"
+E: "Compile, test và scan"
+F: "JUnit XML"
+G: "Artifact + SHA-256 + metadata"
+H: "Jenkins junit"
+I: "archiveArtifacts + fingerprint"
+J: "Trusted branch và policy pass?" {
+  shape: diamond
+}
+K: "Publish credential scope hẹp"
+L: "Giữ evidence, không publish"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+E -> G
+F -> H
+G -> I
+I -> J
+J -> K: "Có"
+J -> L: "Không"
 ```
 
 Pipeline không nên rebuild dependency hay artifact ở stage publish. Build once có nghĩa là compile/test/package một lần trên input đã pin; publish/promotion chỉ dùng output đã verify. Nếu build cần dùng plugin/agent/runtime khác, ghi chúng vào metadata/evidence thay vì đoán từ console log.

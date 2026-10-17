@@ -11,24 +11,24 @@
     "deploy": "npm run build && wrangler pages deploy out",
     "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
     "lint": "eslint .",
-    "check": "npm run lint && npm run types:check && npm run build",
-    "postinstall": "fumadocs-mdx"
+    "check": "npm run lint && npm run types:check && npm run build && npm run test:docs",
+    "postinstall": "fumadocs-mdx",
+    "test:docs": "node --test tests/docs-kit.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.3.0",
     "@fontsource-variable/jetbrains-mono": "5.3.0",
     "@orama/orama": "3.1.18",
+    "@vanhiep99w/docs-kit": "0.9.0",
     "cnfast": "0.0.8",
     "fumadocs-core": "16.11.5",
     "fumadocs-mdx": "15.2.0",
     "fumadocs-ui": "npm:@fumadocs/base-ui@16.11.5",
     "lucide-react": "1.25.0",
-    "mermaid": "11.16.0",
     "next": "16.2.11",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": "0.35.3",
-    "unist-util-visit": "5.1.0"
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.3.3",
@@ -50,6 +50,6 @@
     "sharp": "0.35.3"
   },
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22"
   }
 }

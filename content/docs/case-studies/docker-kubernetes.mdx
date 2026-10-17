@@ -84,42 +84,61 @@ Sau case study này, bạn có thể:
 
 Controller chỉ điều phối queue, trạng thái và credential policy. Build/scan chạy trên agent `linux && image-builder` không nhận credential publish; push/deploy chạy trên agent `trusted-release` có label tool tương ứng. Labels không phải ACL, nhưng giúp không route stage release sang controller hoặc pool pull request.
 
-```text
-Git repository ──commit──> Jenkins controller
-                              │ điều phối, không build
-              ┌───────────────┴────────────────┐
-              ▼                                ▼
-  agent image-builder                  agent trusted-release
-  build + scan + OCI archive                   │ push + kubeconfig deploy tối thiểu
-              │                                ▼
-              ▼                       Registry và namespace staging
-     artifact đã quét                       Deployment + Service
-     tag duy nhất + digest                       │
-              │                                  ▼
-              └──────────── evidence ──> logs, events, metrics
+```d2 title="Thành phần và ranh giới"
+direction: right
+git: Git repository {icon: ../../assets/d2/git.svg}
+controller: "Jenkins controller\nđiều phối, không build"
+builder: "Agent image-builder\nbuild + scan + OCI archive" {icon: ../../assets/d2/docker.svg}
+artifact: "Artifact đã quét\ntag duy nhất + digest"
+release: Agent trusted-release
+runtime: "Registry + namespace staging\nDeployment + Service" {icon: ../../assets/d2/kubernetes.svg}
+evidence: Logs, events, metrics
+git -> controller: Commit
+controller -> builder
+controller -> release
+builder -> artifact
+release -> runtime: Push + kubeconfig deploy tối thiểu
+artifact -> evidence: Evidence
+runtime -> evidence
 ```
 
 Agent image-builder chỉ lấy source, kéo base image, build/scan và tạo OCI archive; nó không có token publish. Agent trusted-release mới push đúng repository rồi gọi API Kubernetes cho namespace/revision đích; agent deploy không cần Docker daemon. Build của fork không có credential registry write hoặc kubeconfig deploy; nếu có pool `untrusted-pr` riêng, route build/scan vào pool đó theo policy Jenkins.
 
 ### Luồng commit đến rollback
 
-```mermaid
-flowchart LR
-  A[Commit đã review] --> B[Jenkins Pipeline]
-  B --> C[Checkout và test]
-  C --> D[Build OCI image từ context]
-  D --> E[Scan policy]
-  E -->|Pass| F[Push registry]
-  E -->|Fail| X[Fail: giữ report và log]
-  F --> G[Đọc digest bất biến]
-  G --> H[Deploy digest vào Kubernetes]
-  H --> I[Rollout status và readiness]
-  I -->|Đạt| J[Smoke check, logs, metrics]
-  I -->|Không đạt| K[Undo revision có kiểm soát]
-  K --> L[Xác minh revision trước]
+```d2 interactive title="Luồng commit đến rollback"
+direction: right
+A: "Commit đã review"
+B: "Jenkins Pipeline"
+C: "Checkout và test"
+D: "Build OCI image từ context"
+E: "Scan policy"
+F: "Push registry"
+X: "Fail: giữ report và log"
+G: "Đọc digest bất biến"
+H: "Deploy digest vào Kubernetes" {
+  icon: "../../assets/d2/kubernetes.svg"
+}
+I: "Rollout status và readiness"
+J: "Smoke check, logs, metrics"
+K: "Undo revision có kiểm soát"
+L: "Xác minh revision trước"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F: "Pass"
+E -> X: "Fail"
+F -> G
+G -> H
+H -> I
+I -> J: "Đạt"
+I -> K: "Không đạt"
+K -> L
 ```
 
-Repository này đã cấu hình renderer cho Mermaid. Sơ đồ mô tả control flow; image layer và artifact nên đi trực tiếp giữa agent, registry và Kubernetes thay vì qua controller khi hạ tầng hỗ trợ.
+Repository này render D2 lúc build qua `@vanhiep99w/docs-kit`. Sơ đồ mô tả control flow; image layer và artifact nên đi trực tiếp giữa agent, registry và Kubernetes thay vì qua controller khi hạ tầng hỗ trợ.
 
 ## Hợp đồng artifact và quyền
 

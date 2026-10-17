@@ -52,18 +52,30 @@ Monitoring tốt trả lời hai câu hỏi khác nhau: Jenkins còn **phục v�
 
 ### Luồng dữ liệu giám sát
 
-```mermaid
-flowchart LR
-  U[Người dùng hoặc webhook] --> J[Jenkins controller]
-  J --> Q[Build queue]
-  Q --> A[Agent và executor]
-  A --> B[Pipeline build test]
-  J --> M[/prometheus/ nội bộ]
-  M --> P[Prometheus scrape qua TLS]
-  P --> D[Dashboard và SLO]
-  P --> R[Alert rules]
-  R --> AM[Alertmanager dedupe route]
-  AM --> O[On-call và runbook]
+```d2 interactive title="Luồng dữ liệu giám sát"
+direction: right
+U: "Người dùng hoặc webhook"
+J: "Jenkins controller"
+Q: "Build queue"
+A: "Agent và executor"
+B: "Pipeline build test"
+M: "/prometheus/ nội bộ"
+P: "Prometheus scrape qua TLS"
+D: "Dashboard và SLO"
+R: "Alert rules"
+AM: "Alertmanager dedupe route"
+O: "On-call và runbook"
+
+U -> J
+J -> Q
+Q -> A
+A -> B
+J -> M
+M -> P
+P -> D
+P -> R
+R -> AM
+AM -> O
 ```
 
 Luồng trên tách telemetry ra khỏi luồng build. Prometheus phải là client được cấp quyền tối thiểu trên network nội bộ; không publish endpoint metrics qua Internet chỉ để dashboard có dữ liệu.

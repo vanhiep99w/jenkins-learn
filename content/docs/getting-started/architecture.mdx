@@ -36,17 +36,28 @@ Một **controller** là đầu não của Jenkins. Nó nhận trigger, giữ c�
 
 ### Sơ đồ luồng một build
 
-```mermaid
-flowchart LR
-  A[Commit được push] --> B[Webhook, lịch hoặc thao tác Build Now]
-  B --> C[Controller chọn job hoặc Pipeline]
-  C --> D[Build queue]
-  D -->|Agent online, nhãn khớp và executor trống| E[Executor trên agent]
-  D -->|Chưa đủ điều kiện| F[Chờ và hiện lý do trong queue]
-  E --> G[Workspace trên agent]
-  G --> H[Checkout, build và test]
-  H --> I[Log, trạng thái và artifact]
-  I --> J[Controller hiển thị và lưu kết quả build]
+```d2 title="Sơ đồ luồng một build"
+direction: right
+A: "Commit được push"
+B: "Webhook, lịch hoặc thao tác\nBuild Now"
+C: "Controller chọn job hoặc\nPipeline"
+D: "Build queue"
+E: "Executor trên agent"
+F: "Chờ và hiện lý do trong queue"
+G: "Workspace trên agent"
+H: "Checkout, build và test"
+I: "Log, trạng thái và artifact"
+J: "Controller hiển thị và lưu kết\nquả build"
+
+A -> B
+B -> C
+C -> D
+D -> E: "Agent online, nhãn khớp và\nexecutor trống"
+D -> F: "Chưa đủ điều kiện"
+E -> G
+G -> H
+H -> I
+I -> J
 ```
 
 Mũi tên từ queue đến executor chỉ xuất hiện khi Jenkins tìm được một node thỏa điều kiện của job. Vì vậy, “đã trigger” không đồng nghĩa với “đang chạy”.

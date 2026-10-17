@@ -56,36 +56,43 @@ Nguyên tắc nền tảng là **deny by design**: nếu chưa biết workload c
 
 ### Sơ đồ controller, agent và supply chain
 
-```mermaid
-flowchart LR
-  SCM[SCM, webhook, PR fork] -->|Jenkinsfile, source, dependency input| Q[Controller queue và policy]
-  UC[Update Center hoặc mirror đã duyệt] -->|metadata, plugin artifact| C[Controller JVM]
-  ADM[Plugin administrator] -->|change record và version set| C
-  Q -->|label + executor scheduling| U[Pool untrusted ephemeral]
-  Q -->|label + executor scheduling| T[Pool trusted CI]
-  Q -->|label + executor scheduling| R[Pool trusted release]
-  C <-->|Remoting channel| U
-  C <-->|Remoting channel| T
-  C <-->|Remoting channel| R
-  U -->|egress hẹp, không secret| X[SCM/package endpoints được phép]
-  T -->|credential scope hẹp| A[Artifact hoặc test service]
-  R -->|capability deploy tối thiểu| D[Release target]
+```d2 interactive title="Sơ đồ controller, agent và supply chain"
+direction: right
+SCM: "SCM, webhook, PR fork"
+Q: "Controller queue và policy"
+UC: "Update Center hoặc mirror đã\nduyệt"
+ADM: "Plugin administrator"
+X: "SCM/package endpoints được phép"
+A: "Artifact hoặc test service"
+D: "Release target"
+B1: "Controller trust boundary" {
+  C: "Controller JVM"
+}
+B2: "Untrusted execution boundary" {
+  U: "Pool untrusted ephemeral"
+}
+B3: "Trusted execution boundaries" {
+  T: "Pool trusted CI"
+  R: "Pool trusted release"
+}
 
-  subgraph B1[Controller trust boundary]
-    C
-  end
-  subgraph B2[Untrusted execution boundary]
-    U
-  end
-  subgraph B3[Trusted execution boundaries]
-    T
-    R
-  end
+SCM -> Q: "Jenkinsfile, source, dependency\ninput"
+UC -> B1.C: "metadata, plugin artifact"
+ADM -> B1.C: "change record và version set"
+Q -> B2.U: "label + executor scheduling"
+Q -> B3.T: "label + executor scheduling"
+Q -> B3.R: "label + executor scheduling"
+B1.C <-> B2.U: "Remoting channel"
+B1.C <-> B3.T: "Remoting channel"
+B1.C <-> B3.R: "Remoting channel"
+B2.U -> X: "egress hẹp, không secret"
+B3.T -> A: "credential scope hẹp"
+B3.R -> D: "capability deploy tối thiểu"
 ```
 
 Controller nhận input từ SCM và supply chain, nhưng không nên thực thi workload đó trên built-in node. Nó chỉ điều phối queue, giữ state và áp dụng policy. Remoting là kênh controller–agent hai chiều, nên agent đã bị chiếm hoặc kết nối sai identity là một security event cần triage, không chỉ là lỗi capacity.
 
-Mermaid được repository cấu hình qua `MermaidDiagram`; khi tái sử dụng trang ở một Fumadocs khác, cần renderer Mermaid tương đương.
+D2 được repository render lúc build qua `@vanhiep99w/docs-kit`; khi tái sử dụng trang ở site khác, cần đăng ký plugin, component và CSS tương ứng.
 
 ### Label không phải authorization
 

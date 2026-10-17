@@ -55,17 +55,26 @@ Sau khi hoàn thành, bạn có thể:
 
 ### Luồng từ GitHub đến Jenkins
 
-```text
-GitHub App installation ── quyền hẹp ──► GitHub API / repository đã chọn
-          │                                      │
-          │ webhook có chữ ký                    │ branch/PR metadata
-          ▼                                      ▼
-Webhook endpoint do plugin quản lý ──► Branch Source indexing ──► job con Multibranch
-                                                                         │
-                           PR hoặc fork: agent/pool không đặc quyền ────┤
-                           branch tin cậy: gate + credential scope ────┤
-                                                                         ▼
-                                             build result ──► status hoặc check run
+```d2 interactive title="Luồng từ GitHub đến Jenkins"
+direction: right
+app: GitHub App installation {icon: ../../assets/d2/github.svg}
+api: GitHub API / repository đã chọn
+endpoint: Webhook endpoint do plugin quản lý
+index: Branch Source indexing
+job: Job con Multibranch
+untrusted: PR/fork agent không đặc quyền
+trusted: Branch tin cậy, gate + credential scope
+result: Build result
+status: Status / check run
+app -> api: Quyền hẹp
+app -> endpoint: Webhook có chữ ký
+api -> index: Branch/PR metadata
+endpoint -> index -> job
+job -> untrusted
+job -> trusted
+untrusted -> result
+trusted -> result
+result -> status
 ```
 
 Webhook và API identity có trách nhiệm khác nhau. Webhook xác thực nguồn delivery và kích hoạt Jenkins cập nhật state. GitHub App xác thực Jenkins khi plugin clone metadata, đọc source hoặc công bố feedback. Cả hai phải có secret/permission riêng, owner, rotation và audit.

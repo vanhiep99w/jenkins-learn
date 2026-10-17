@@ -1,28 +1,11 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
-import { visit } from 'unist-util-visit';
-import type { Root } from 'mdast';
-
-function remarkMermaid() {
-  return (tree: Root) => {
-    visit(tree, 'code', (node, index, parent) => {
-      if (node.lang !== 'mermaid' || index === undefined || !parent) return;
-
-      (parent.children as unknown[])[index] = {
-        type: 'mdxJsxFlowElement',
-        name: 'MermaidDiagram',
-        attributes: [
-          {
-            type: 'mdxJsxAttribute',
-            name: 'chart',
-            value: node.value,
-          },
-        ],
-        children: [],
-      };
-    });
-  };
-}
+import { remarkD2 } from '@vanhiep99w/docs-kit/d2';
+import { remarkCodeWalkthrough } from '@vanhiep99w/docs-kit/code-walkthrough';
+import { remarkTerminalSession } from '@vanhiep99w/docs-kit/terminal-session';
+import { remarkCodeDiff } from '@vanhiep99w/docs-kit/code-diff';
+import { remarkProtocolExchange } from '@vanhiep99w/docs-kit/protocol-exchange';
+import { remarkSpanWaterfall } from '@vanhiep99w/docs-kit/span-waterfall';
 
 export const docs = defineDocs({
   dir: 'content/docs',
@@ -39,6 +22,19 @@ export const docs = defineDocs({
 
 export default defineConfig({
   mdxOptions: {
-    remarkPlugins: [remarkMermaid],
+    remarkPlugins: [
+      [remarkD2, {
+        cacheDir: '.next/cache/docs-kit/d2',
+        assetsRoot: 'content/assets/d2',
+        layout: 'elk',
+        sketch: false,
+        defaultCaption: 'Sơ đồ',
+      }],
+      remarkCodeWalkthrough,
+      remarkTerminalSession,
+      remarkCodeDiff,
+      remarkProtocolExchange,
+      remarkSpanWaterfall,
+    ],
   },
 });

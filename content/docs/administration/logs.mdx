@@ -54,29 +54,17 @@ Các tên category, menu và tập dữ liệu bundle thay đổi theo Jenkins L
 
 ### Luồng chẩn đoán
 
-```text
-┌───────────────┐     build event      ┌────────────────────┐
-│ User / webhook│ ───────────────────► │ Jenkins controller │
-└───────────────┘                      │ System Log Recorder│
-                                       └─────────┬──────────┘
-                                                 │ Remoting task/status
-                                                 ▼
-                                       ┌────────────────────┐
-                                       │ Agent process      │
-                                       │ agent service log  │
-                                       └─────────┬──────────┘
-                                                 │ command output
-                                                 ▼
-                                       ┌────────────────────┐
-                                       │ Build Console      │
-                                       │ Output             │
-                                       └─────────┬──────────┘
-                                                 │ selected records only
-                                                 ▼
-                                       ┌────────────────────┐
-                                       │ Private forwarder  │
-                                       │ / log backend      │
-                                       └────────────────────┘
+```d2 title="Luồng chẩn đoán"
+direction: right
+trigger: User / webhook
+controller: "Jenkins controller\nSystem Log Recorder"
+agent: "Agent process\nagent service log"
+console: Build Console Output
+backend: Private forwarder / log backend
+trigger -> controller: Build event
+controller -> agent: Remoting task/status
+agent -> console: Command output
+console -> backend: Selected records only
 ```
 
 Bắt đầu từ build URL, build number, job/folder, revision, agent/node và khoảng thời gian có timezone. Dùng chúng để ghép các nguồn. Không suy đoán chỉ từ dòng cuối như `Finished: FAILURE`; lỗi nguyên nhân thường xuất hiện trước các dòng cleanup hoặc retry.

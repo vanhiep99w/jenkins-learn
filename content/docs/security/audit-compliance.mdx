@@ -164,18 +164,31 @@ Separation of duties (SoD) giảm rủi ro một identity vừa sửa Pipeline, 
 
 ### Vòng đời evidence
 
-```mermaid
-flowchart LR
-  A[Event từ Jenkins, IdP, SCM hoặc platform] --> B[Phân loại và redact tối thiểu]
-  B --> C[Chuẩn hóa UTC, source và correlation ID]
-  C --> D[Kho evidence tập trung có IAM tối thiểu]
-  D --> E[Manifest, checksum và chain of custody]
-  E --> F{Legal hold hoặc incident mở?}
-  F -->|Có| G[Giữ theo hold đã phê duyệt]
-  F -->|Không| H[Retention theo lớp dữ liệu và policy]
-  G --> I[Review quyền, integrity và restore/read test]
-  H --> I
-  I --> J[Dispose có kiểm soát hoặc gia hạn có lý do]
+```d2 interactive title="Vòng đời evidence"
+direction: right
+A: "Event từ Jenkins, IdP, SCM hoặc\nplatform"
+B: "Phân loại và redact tối thiểu"
+C: "Chuẩn hóa UTC, source và\ncorrelation ID"
+D: "Kho evidence tập trung có IAM\ntối thiểu"
+E: "Manifest, checksum và chain of\ncustody"
+F: "Legal hold hoặc incident mở?" {
+  shape: diamond
+}
+G: "Giữ theo hold đã phê duyệt"
+H: "Retention theo lớp dữ liệu và\npolicy"
+I: "Review quyền, integrity và\nrestore/read test"
+J: "Dispose có kiểm soát hoặc gia\nhạn có lý do"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G: "Có"
+F -> H: "Không"
+G -> I
+H -> I
+I -> J
 ```
 
 Sơ đồ nêu lifecycle mong muốn, không khẳng định Jenkins tự gửi, redact, ký hay WORM-lock data. Mỗi mũi tên phải có owner/runtime evidence: collector, integration, IAM policy, store setting, export job hoặc thao tác vận hành.

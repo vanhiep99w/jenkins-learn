@@ -51,31 +51,32 @@ Threat model bắt đầu bằng câu hỏi: **ai có thể đưa dữ liệu n�
 
 ### Sơ đồ threat-model
 
-```mermaid
-flowchart LR
-  A[Người dùng hoặc automation] -->|UI, REST hoặc CLI| B[Controller]
-  C[SCM hoặc webhook] -->|event, Jenkinsfile, source| B
-  D[Update Center hoặc mirror] -->|metadata và plugin| B
-  B -->|authorization và scheduling| E[Build queue]
-  E -->|Remoting channel| F[Agent riêng]
-  F --> G[Workspace, process và artifact]
-  B --> H[JENKINS_HOME, config và credentials]
-  B --> I[Console log và build metadata]
+```d2 interactive title="Sơ đồ threat-model"
+direction: right
+E: "Build queue"
+T1: "Trust boundary: Internet hoặc\nngười dùng" {
+  A: "Người dùng hoặc automation"
+  C: "SCM hoặc webhook"
+  D: "Update Center hoặc mirror"
+}
+T2: "Trust boundary: controller đặc\nquyền" {
+  B: "Controller"
+  H: "JENKINS_HOME, config và\ncredentials"
+  I: "Console log và build metadata"
+}
+T3: "Trust boundary: pool thực thi" {
+  F: "Agent riêng"
+  G: "Workspace, process và artifact"
+}
 
-  subgraph T1[Trust boundary: Internet hoặc người dùng]
-    A
-    C
-    D
-  end
-  subgraph T2[Trust boundary: controller đặc quyền]
-    B
-    H
-    I
-  end
-  subgraph T3[Trust boundary: pool thực thi]
-    F
-    G
-  end
+T1.A -> T2.B: "UI, REST hoặc CLI"
+T1.C -> T2.B: "event, Jenkinsfile, source"
+T1.D -> T2.B: "metadata và plugin"
+T2.B -> E: "authorization và scheduling"
+E -> T3.F: "Remoting channel"
+T3.F -> T3.G
+T2.B -> T2.H
+T2.B -> T2.I
 ```
 
 Mũi tên là luồng cần review, không khẳng định mọi dữ liệu đều đi qua controller theo cùng cách. Artifact Manager, launcher và plugin có thể đổi đường dữ liệu. Khi triển khai thật, vẽ thêm DNS, reverse proxy, registry, artifact store, secret manager và network egress đang có; không suy đoán từ sơ đồ chung.
@@ -127,9 +128,14 @@ Security realm không quyết định user đó được đọc job, trigger bui
 
 Luồng đúng là:
 
-```text
-request → security realm xác thực identity → authorization strategy kiểm permission
-        → Jenkins/plugin thực hiện hoặc từ chối action → audit/log đã redaction
+```d2 title="Authorization strategy quyết định permission"
+direction: right
+request: Request
+realm: Security realm xác thực identity
+auth: Authorization strategy kiểm permission
+action: Jenkins/plugin thực hiện hoặc từ chối action
+audit: Audit/log đã redact
+request -> realm -> auth -> action -> audit
 ```
 
 Đổi security realm có thể đổi danh sách user/group. Đổi authorization strategy có thể đổi policy quyền. Hai thay đổi phải được review và kiểm thử riêng; không “sửa authorization” bằng cách tạo một user admin mới, cũng không “sửa authentication” bằng cách gán thêm `Overall/Administer`.

@@ -42,20 +42,33 @@ Sau bài này, bạn có thể thiết kế một kết nối trả lời đư�
 
 ### Luồng sự kiện và ranh giới tin cậy
 
-```mermaid
-flowchart LR
-  A[Developer push hoặc PR] --> B[Bitbucket webhook]
-  B --> C[Jenkins endpoint hoặc SCM event handler]
-  C --> D[Multibranch / Organization Folder indexing]
-  D --> E[SCM source plugin discovery]
-  E --> F[Job con theo branch hoặc PR]
-  F --> G[Agent untrusted CI cho PR]
-  G --> H[Tests không có release credential]
-  F --> I[Branch bảo vệ sau merge]
-  I --> J[Agent trusted release]
-  J --> K[Gate, artifact và deploy policy]
-  H --> L[Build status context]
-  K --> L
+```d2 interactive title="Luồng sự kiện và ranh giới tin cậy"
+direction: right
+A: "Developer push hoặc PR"
+B: "Bitbucket webhook"
+C: "Jenkins endpoint hoặc SCM event\nhandler"
+D: "Multibranch / Organization\nFolder indexing"
+E: "SCM source plugin discovery"
+F: "Job con theo branch hoặc PR"
+G: "Agent untrusted CI cho PR"
+H: "Tests không có release\ncredential"
+I: "Branch bảo vệ sau merge"
+J: "Agent trusted release"
+K: "Gate, artifact và deploy policy"
+L: "Build status context"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F
+F -> G
+G -> H
+F -> I
+I -> J
+J -> K
+H -> L
+K -> L
 ```
 
 Webhook là tín hiệu để Jenkins xem lại source/index. Nó không phải chứng minh event hợp lệ, không thay branch protection, và không phải lệnh deploy. SCM source plugin quyết định mapping event sang scan/index; Jenkinsfile vẫn phải bảo vệ stage nhạy cảm theo context branch/PR và trust policy của chính controller.

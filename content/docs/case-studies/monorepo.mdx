@@ -96,24 +96,42 @@ Một detector đáng tin trả về hai thứ: `affected` và `reason`. Ví d�
 
 ## Luồng Jenkins từ commit đến promotion
 
-```mermaid
-flowchart LR
-  A[Commit hoặc pull request] --> B[Multibranch indexing]
-  B --> C[Checkout revision và base]
-  C --> D[Change detection\npath + dependency graph]
-  D --> E{Plan hợp lệ?}
-  E -->|Không hoặc policy-wide| F[Full validation]
-  E -->|Có| G[Parallel affected domains]
-  G --> H[Shared checks\npolicy, lockfile, security]
-  F --> H
-  H --> I[Aggregate JUnit, coverage\nartifact và provenance]
-  I --> J{Merge gate đạt?}
-  J -->|PR| K[Publish status, không promotion]
-  J -->|main protected| L[Promote artifact bất biến]
-  L --> M[Deploy theo approval/policy]
+```d2 interactive title="Luồng Jenkins từ commit đến promotion"
+direction: right
+A: "Commit hoặc pull request"
+B: "Multibranch indexing"
+C: "Checkout revision và base"
+D: "Change detection\npath + dependency graph"
+E: "Plan hợp lệ?" {
+  shape: diamond
+}
+F: "Full validation"
+G: "Parallel affected domains"
+H: "Shared checks\npolicy, lockfile, security"
+I: "Aggregate JUnit, coverage\nartifact và provenance"
+J: "Merge gate đạt?" {
+  shape: diamond
+}
+K: "Publish status, không promotion"
+L: "Promote artifact bất biến"
+M: "Deploy theo approval/policy"
+
+A -> B
+B -> C
+C -> D
+D -> E
+E -> F: "Không hoặc policy-wide"
+E -> G: "Có"
+G -> H
+F -> H
+H -> I
+I -> J
+J -> K: "PR"
+J -> L: "main protected"
+L -> M
 ```
 
-Diagram Mermaid được project này chuyển thành component qua cấu hình MDX; nó vẫn là mô tả luồng, không phải cấu hình Jenkins.
+Sơ đồ D2 được project render lúc build qua cấu hình MDX; nó vẫn là mô tả luồng, không phải cấu hình Jenkins.
 
 ### Multibranch, pull request và trust
 

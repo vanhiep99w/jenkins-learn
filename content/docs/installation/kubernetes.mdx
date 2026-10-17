@@ -72,17 +72,29 @@ tạo agent theo nhu cầu, thay vì tăng executor hoặc replica của control
 
 ### Kiến trúc mục tiêu
 
-```mermaid
-flowchart LR
-  U[Quản trị viên và webhook] -->|HTTPS| D[DNS]
-  D --> I[Ingress controller]
-  I --> S[Service ClusterIP]
-  S --> C[Jenkins controller StatefulSet\n1 replica, 0 executor]
-  C --> P[(PVC cho JENKINS_HOME)]
-  C -->|Kubernetes API| K[API server]
-  K --> A[Agent pod tạm thời]
-  A -->|Kết quả build| C
-  B[Snapshot và backup ngoài cluster] -. bảo vệ .-> P
+```d2 title="Kiến trúc mục tiêu"
+direction: right
+U: "Quản trị viên và webhook"
+D: "DNS"
+I: "Ingress controller"
+S: "Service ClusterIP"
+C: "Jenkins controller StatefulSet\n1 replica, 0 executor"
+P: "PVC cho JENKINS_HOME" {
+  shape: cylinder
+}
+K: "API server"
+A: "Agent pod tạm thời"
+B: "Snapshot và backup ngoài cluster"
+
+U -> D: "HTTPS"
+D -> I
+I -> S
+S -> C
+C -> P
+C -> K: "Kubernetes API"
+K -> A
+A -> C: "Kết quả build"
+B -> P: "bảo vệ" {style.stroke-dash: 4}
 ```
 
 Luồng production nên có các đặc điểm sau:

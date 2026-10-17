@@ -57,23 +57,20 @@ Sau khi hoàn thành runbook, người vận hành có thể:
 
 Sơ đồ dưới là ranh giới trách nhiệm, không phải đường đi duy nhất của mọi byte:
 
-```text
-source revision
-      │
-      ▼
-CI trên agent không tin cậy cho PR ── test, scan, SBOM ──► image đã kiểm
-      │                                                        │
-      │ main đã bảo vệ, gate pass                              ▼
-      └────────────────────────────────────────► registry: tag tra cứu + digest
-                                                               │
-                                              Jenkins trusted deploy agent
-                                               kubeconfig namespaced ngắn hạn
-                                                               │
-                                                               ▼
-                                                   Deployment trong namespace
-                                                               │
-                                                               ▼
-                                           rollout, events, logs, metrics, audit
+```d2 title="Kết quả cần đạt"
+direction: right
+source: Source revision
+ci: CI trên agent không tin cậy cho PR
+image: Image đã kiểm
+registry: "Registry\ntag tra cứu + digest"
+deploy: "Jenkins trusted deploy agent\nkubeconfig namespaced ngắn hạn"
+namespace: Deployment trong namespace {icon: ../../assets/d2/kubernetes.svg}
+evidence: Rollout, events, logs, metrics, audit
+source -> ci
+ci -> image: Test, scan, SBOM
+image -> registry
+ci -> registry: Main đã bảo vệ, gate pass
+registry -> deploy -> namespace -> evidence
 ```
 
 ### CI, CD trực tiếp và GitOps

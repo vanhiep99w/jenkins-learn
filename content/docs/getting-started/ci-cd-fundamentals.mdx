@@ -86,23 +86,41 @@ Nói ngắn gọn: **Delivery là “luôn sẵn sàng để phát hành”; Dep
 
 Sơ đồ dưới đây mô tả một luồng điển hình. Nhánh thất bại quay về nhà phát triển với log và trạng thái build; nhánh đạt điều kiện tạo một artifact bất biến để dùng lại ở các môi trường.
 
-```mermaid
-flowchart LR
-  A[Git commit hoặc pull request] --> B[Jenkins nhận webhook]
-  B --> C[Checkout và build]
-  C --> D[Test, scan, quality gate]
-  D -->|Không đạt| E[Trạng thái, log và thông báo]
-  E --> F[Nhà phát triển sửa thay đổi]
-  F --> A
-  D -->|Đạt| G[Artifact có version]
-  G --> H[Triển khai staging]
-  H --> I{Chính sách phát hành}
-  I -->|Continuous Delivery| J[Approval hoặc lịch phát hành]
-  I -->|Continuous Deployment| K[Tự động triển khai production]
-  J --> L[Release production]
-  K --> L
-  L --> M[Metrics, alert và phản hồi người dùng]
-  M --> F
+```d2 interactive title="Từ commit đến feedback và release"
+direction: right
+A: "Git commit hoặc pull request" {
+  icon: "../../assets/d2/git.svg"
+}
+B: "Jenkins nhận webhook"
+C: "Checkout và build"
+D: "Test, scan, quality gate"
+E: "Trạng thái, log và thông báo"
+F: "Nhà phát triển sửa thay đổi"
+G: "Artifact có version"
+H: "Triển khai staging"
+I: "Chính sách phát hành" {
+  shape: diamond
+}
+J: "Approval hoặc lịch phát hành"
+K: "Tự động triển khai production"
+L: "Release production"
+M: "Metrics, alert và phản hồi người\ndùng"
+
+A -> B
+B -> C
+C -> D
+D -> E: "Không đạt"
+E -> F
+F -> A
+D -> G: "Đạt"
+G -> H
+H -> I
+I -> J: "Continuous Delivery"
+I -> K: "Continuous Deployment"
+J -> L
+K -> L
+L -> M
+M -> F
 ```
 
 ### Pipeline

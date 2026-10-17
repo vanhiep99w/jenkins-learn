@@ -38,8 +38,13 @@ Mục tiêu phổ biến nhất là **Continuous Integration (CI)**: tích hợp
 
 Một lập trình viên sửa hàm tính phí vận chuyển trong ứng dụng Node.js. Thay vì nhớ chạy từng lệnh rồi báo kết quả trong chat, Pipeline có thể chạy cùng một chuỗi lệnh cho mỗi thay đổi:
 
-```text
-npm ci  →  npm test  →  npm run build  →  lưu log/kết quả
+```d2 title="Ví dụ: một thay đổi nhỏ vẫn cần được kiểm tra"
+direction: right
+install: npm ci
+test: npm test
+build: npm run build
+result: Lưu log/kết quả
+install -> test -> build -> result
 ```
 
 Nếu `npm test` thất bại, build được đánh dấu thất bại và người tạo thay đổi nhận phản hồi sớm. Nếu thành công, Jenkins có thể lưu artifact hoặc gửi tín hiệu cho bước phát hành tiếp theo. Nhờ đó, cách kiểm tra trở thành một phần được phiên bản hóa của quy trình thay vì kiến thức nằm trong máy cá nhân.
@@ -48,17 +53,18 @@ Nếu `npm test` thất bại, build được đánh dấu thất bại và ngư
 
 Jenkins tách việc **điều phối** khỏi việc **thực thi**. Một controller nhận yêu cầu, xếp hàng công việc và lưu trạng thái. Agent cung cấp môi trường chạy lệnh, ví dụ máy Linux có JDK hoặc container có Node.js. Với hệ thống nhỏ, controller có thể chạy tác vụ lab; với production, nên ưu tiên đưa build nặng hoặc không tin cậy sang agent được kiểm soát.
 
-```text
-Developer / SCM                 Jenkins
-commit hoặc webhook             controller                 Agent
-       │                            │                         │
-       └───────────────────────────►│ nhận job/Pipeline       │
-                                    │ xếp vào queue           │
-                                    └──────── gửi tác vụ ────►│ checkout, test,
-                                                              │ build
-                                    ◄──── log, trạng thái ────┘
-                                    │
-                                    └──── artifact / thông báo ───► nơi lưu trữ / nhóm
+```d2 title="Mô hình hoạt động nhập môn"
+shape: sequence_diagram
+scm: Developer / SCM
+controller: Jenkins controller
+agent: Agent
+output: Nơi lưu trữ / nhóm
+scm -> controller: Commit hoặc webhook
+controller -> controller: Nhận job/Pipeline, xếp queue
+controller -> agent: Gửi tác vụ
+agent -> agent: Checkout, test, build
+agent -> controller: Log, trạng thái
+controller -> output: Artifact / thông báo
 ```
 
 Sơ đồ là mô hình tinh gọn: cách agent kết nối, nơi lưu artifact và trigger thực tế tùy thuộc cấu hình và plugin. Xem chi tiết về queue, executor và luồng build tại [Kiến trúc Jenkins](/docs/getting-started/architecture).

@@ -53,17 +53,16 @@ Sau khi hoàn thành, bạn có thể:
 
 ### Luồng notification an toàn
 
-```text
-Pipeline result và evidence đã redact
-             │
-             ▼
-post condition theo policy ──► template tối thiểu ──► plugin hoặc queue delivery
-             │                                                  │
-             │                                                  ▼
-             └──── failure/abort không bị che ─────► email, chat, hoặc on-call audience
-                                                               │
-                                                               ▼
-                                                dedup, cooldown, escalation, audit
+```d2 title="Luồng notification an toàn"
+direction: right
+result: Pipeline result + evidence đã redact
+post: Post condition theo policy
+template: Template tối thiểu
+delivery: Plugin / queue delivery
+audience: Email, chat, on-call audience
+policy: Dedup, cooldown, escalation, audit
+result -> post -> template -> delivery -> audience -> policy
+post -> audience: Failure/abort không bị che {style.stroke-dash: 4}
 ```
 
 `post` là nơi quyết định **có nên phát tín hiệu** sau khi build kết thúc. Nó không phải lý do để gửi payload đầy đủ hay chạy notification ở mọi đường. Bằng chứng như report/artifact đã lọc phải được publish trước; notification chỉ liên kết đến evidence có quyền truy cập phù hợp.

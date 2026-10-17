@@ -81,20 +81,38 @@ Cách Stage View, Blue Ocean hay giao diện khác hiển thị stage result có
 
 Sơ đồ dưới mô tả đường đi thông thường. Nhánh `catchError` chỉ phù hợp khi policy đã nói rõ lỗi có thể tiếp tục với một kết quả không xanh; nó không phải nhánh “bỏ qua lỗi”.
 
-```mermaid
-flowchart TD
-  A[Step hoặc process chạy] --> B{Exit code 0\nhoặc không có exception?}
-  B -->|Có| C[Tiếp tục stage]
-  B -->|Không| D[Exception trong Pipeline]
-  D --> E{Có timeout, abort\nhoặc interruption?}
-  E -->|Có| F[Cleanup idempotent\nrồi lan truyền interruption]
-  E -->|Không| G{Lỗi đã được policy\nphân loại là không chặn?}
-  G -->|Không| H[Lan truyền failure\nBuild FAILURE]
-  G -->|Có| I[catchError đặt stage/build result]
-  I --> J[Thu report và áp gate rõ ràng]
-  C --> J
-  F --> K[Build ABORTED hoặc\nkết quả interruption thực tế]
-  H --> J
+```d2 interactive title="Luồng lỗi từ lệnh đến kết quả"
+direction: down
+A: "Step hoặc process chạy"
+B: "Exit code 0\nhoặc không có exception?" {
+  shape: diamond
+}
+C: "Tiếp tục stage"
+D: "Exception trong Pipeline"
+E: "Có timeout, abort\nhoặc interruption?" {
+  shape: diamond
+}
+F: "Cleanup idempotent\nrồi lan truyền interruption"
+G: "Lỗi đã được policy\nphân loại là không chặn?" {
+  shape: diamond
+}
+H: "Lan truyền failure\nBuild FAILURE"
+I: "catchError đặt stage/build\nresult"
+J: "Thu report và áp gate rõ ràng"
+K: "Build ABORTED hoặc\nkết quả interruption thực tế"
+
+A -> B
+B -> C: "Có"
+B -> D: "Không"
+D -> E
+E -> F: "Có"
+E -> G: "Không"
+G -> H: "Không"
+G -> I: "Có"
+I -> J
+C -> J
+F -> K
+H -> J
 ```
 
 `finally` hoặc `post { always { ... } }` có thể thu report/dọn tài nguyên sau nhiều nhánh trong sơ đồ. Chúng không bảo đảm chạy khi controller bị dừng cưỡng bức, JVM bị kill hoặc agent biến mất hoàn toàn; cleanup bên ngoài vẫn cần TTL và cơ chế thu gom riêng.

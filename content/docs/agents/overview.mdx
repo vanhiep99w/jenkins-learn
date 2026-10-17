@@ -52,22 +52,33 @@ Sự tách vai trò này không tự tạo bảo mật. Một Pipeline có quy�
 
 ### Đường đi của một workload
 
-```mermaid
-flowchart LR
-  A[Commit, webhook hoặc Build Now] --> B[Controller]
-  B --> C[Build queue]
-  C --> D{Node online, label khớp\nvà executor trống?}
-  D -->|Chưa| C
-  D -->|Có| E[Executor trên agent]
-  E --> F[Workspace]
-  F --> G[Checkout, test, build]
-  G --> H[Log, trạng thái và artifact metadata]
-  H --> B
+```d2 title="Đường đi của một workload"
+direction: right
+A: "Commit, webhook hoặc Build Now"
+B: "Controller"
+C: "Build queue"
+D: "Node online, label khớp\nvà executor trống?" {
+  shape: diamond
+}
+E: "Executor trên agent"
+F: "Workspace"
+G: "Checkout, test, build"
+H: "Log, trạng thái và artifact\nmetadata"
+
+A -> B
+B -> C
+C -> D
+D -> C: "Chưa"
+D -> E: "Có"
+E -> F
+F -> G
+G -> H
+H -> B
 ```
 
 Một build đã được trigger vẫn có thể đứng trong queue. Controller chỉ cấp nó khi có agent `Online`, thỏa biểu thức label và còn executor. Nếu dự án cần `linux && docker`, executor rảnh trên agent chỉ có label `windows` không phải là capacity có thể dùng cho build đó.
 
-Sơ đồ dùng Mermaid; dự án này cần renderer Mermaid đã được cấu hình để vẽ sơ đồ. Khi sao chép sang một Fumadocs khác, hãy cấu hình `fumadocs-mermaid` hoặc một renderer tương đương; nếu không, sơ đồ chỉ hiện như code block.
+Sơ đồ dùng D2 và được render lúc build qua `@vanhiep99w/docs-kit`. Khi sao chép sang site khác, hãy đăng ký plugin, component và CSS tương ứng.
 
 ### Controller điều phối và agent thực thi
 

@@ -101,25 +101,17 @@ Một build đang chạy không phải bảng điều khiển để thay đổi 
 
 Khi cùng tên `LOG_LEVEL` được đặt ở nhiều lớp, hãy đọc từ ngoài vào trong. Scope gần step process nhất sẽ che giá trị của scope ngoài trong thời gian nó hiệu lực.
 
-```text
-Controller/global, node/agent và parameter export lúc build bắt đầu
-                    │
-                    ▼
-Baseline environment: env.LOG_LEVEL / process LOG_LEVEL
-                    │
-                    ▼
-Pipeline environment { LOG_LEVEL = 'info' }
-                    │
-                    ▼
-Stage environment    { LOG_LEVEL = 'debug' }
-                    │
-                    ▼
-withEnv(['LOG_LEVEL=trace']) { sh / bat / powershell }
-                    │
-                    ▼
-Process nhận LOG_LEVEL=trace
-
-params.LOG_LEVEL ── API giữ input parameter; env/process là biểu diễn chuỗi có thể bị overlay.
+```d2 title="Sơ đồ precedence của một process"
+direction: right
+baseline: "Controller/global + node/agent\nparameter export lúc bắt đầu build"
+env: "Baseline env.LOG_LEVEL\nprocess LOG_LEVEL"
+pipeline: "Pipeline environment\nLOG_LEVEL=info"
+stage: "Stage environment\nLOG_LEVEL=debug"
+overlay: "withEnv\nLOG_LEVEL=trace"
+process: Process nhận LOG_LEVEL=trace
+params: "params.LOG_LEVEL\nAPI giữ input parameter\nkhông bị env overlay"
+baseline -> env -> pipeline -> stage -> overlay -> process
+params -> baseline: Export ban đầu {style.stroke-dash: 4}
 ```
 
 Sơ đồ là mô hình cho Declarative/Pipeline context thông dụng, không phải cam kết của mọi plugin inject environment. Đối với job/folder/plugin, xác minh bằng một build lab có tên marker mới thay vì ghi đè biến hệ thống quan trọng.

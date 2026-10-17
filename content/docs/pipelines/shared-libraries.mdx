@@ -185,23 +185,22 @@ Khi validation thất bại, ném lỗi có thể hành động và để build 
 
 `resources/` dành cho dữ liệu tĩnh không nhạy cảm. `libraryResource` đọc bằng đường dẫn package-like, không phải filesystem path của agent; vì vậy consumer không nên đoán checkout location. Không đặt secret vào resource: resource là một phần revision library và có thể đi qua SCM, cache, log hoặc review.
 
-```mermaid
-sequenceDiagram
-  participant C as Consumer Jenkinsfile
-  participant J as Jenkins controller
-  participant R as SCM retriever
-  participant V as vars/safeBuild
-  participant S as src/BuildPlan
-  participant P as Pipeline runtime
-
-  C->>J: @Library(name@pinned revision)
-  J->>R: checkout bằng quyền đọc tối thiểu
-  R-->>J: vars/, src/, resources/
-  C->>V: safeBuild(checks)
-  V->>S: validate và tạo data serializable
-  S-->>V: BuildPlan
-  V->>P: echo resource và trạng thái check
-  P-->>C: log, lỗi hoặc build result
+```d2 title="src/, resource và luồng gọi"
+shape: sequence_diagram
+C: "Consumer Jenkinsfile"
+J: "Jenkins controller"
+R: "SCM retriever"
+V: "vars/safeBuild"
+S: "src/BuildPlan"
+P: "Pipeline runtime"
+C -> J: "@Library(name@pinned revision)"
+J -> R: "checkout bằng quyền đọc tối\nthiểu"
+R -> J: "vars/, src/, resources/" {style.stroke-dash: 4}
+C -> V: "safeBuild(checks)"
+V -> S: "validate và tạo data\nserializable"
+S -> V: "BuildPlan" {style.stroke-dash: 4}
+V -> P: "echo resource và trạng thái\ncheck"
+P -> C: "log, lỗi hoặc build result" {style.stroke-dash: 4}
 ```
 
 Luồng này không chứng minh library có thể chạy trên mọi controller. Retriever, version Git/SCM, plugin Pipeline, sandbox policy và Script Approval là behavior runtime cần xác minh riêng trên controller lab. Static unit test chỉ chứng minh contract Groovy; nó không thay thế kiểm tra classpath, retriever hoặc sandbox.

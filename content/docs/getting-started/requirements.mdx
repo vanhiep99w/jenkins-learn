@@ -163,15 +163,22 @@ Lập allowlist theo luồng thực tế. Controller thường cần outbound HT
 
 ### Các luồng kết nối cần lập kế hoạch
 
-```text
-Browser ── HTTPS ──► Reverse proxy ── HTTPS/HTTP nội bộ ──► Controller
-                                                        │
-Controller ── HTTPS ──► Update center / SCM / artifact / IdP
-     │                                                  ▲
-     ├── SSH ──► Agent (khi launch bằng SSH)            │
-     └── TCP đã cấu hình ◄── Inbound agent              │
-
-Agent ── HTTPS ──► SCM / dependency / artifact registry ┘
+```d2 title="Các luồng kết nối cần lập kế hoạch"
+direction: right
+browser: Browser
+proxy: Reverse proxy
+controller: Controller
+services: Update center / SCM / artifact / IdP
+ssh: Agent SSH
+inbound: Inbound agent
+registry: SCM / dependency / artifact registry
+browser -> proxy: HTTPS
+proxy -> controller: HTTPS/HTTP nội bộ
+controller -> services: HTTPS
+controller -> ssh: SSH khi launch bằng SSH
+inbound -> controller: TCP đã cấu hình
+ssh -> registry: HTTPS
+inbound -> registry: HTTPS
 ```
 
 - Người dùng nên truy cập controller qua HTTPS và reverse proxy; không public trực tiếp port nội bộ của Jenkins nếu không cần thiết.

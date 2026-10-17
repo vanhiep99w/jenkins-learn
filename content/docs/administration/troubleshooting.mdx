@@ -66,41 +66,28 @@ Timeline phải có dữ kiện có thể kiểm tra: `10:14 UTC — build #281 
 
 Dùng flow này cho mỗi incident. Một nhánh chỉ dẫn đến **giả thuyết**, không phải giấy phép thay đổi lớn. Nếu bằng chứng mâu thuẫn, quay lại phạm vi và thu thêm dữ liệu.
 
-```text
-┌───────────────────────────────────┐
-│ Triệu chứng + SEV + incident owner│
-└─────────────────┬─────────────────┘
-                  ▼
-┌───────────────────────────────────┐
-│ Phạm vi: 1 build, 1 pool, hay toàn│
-│ controller? Ghi timeline UTC.     │
-└─────────────────┬─────────────────┘
-                  ▼
-        ┌─────────────────────┐
-        │ Build có executor?  │
-        └───────┬────────┬────┘
-           Không│        │Có
-                ▼        ▼
-       ┌─────────────┐  ┌─────────────────────────┐
-       │ Queue:      │  │Stage/step có tiến triển?│
-       │ label/node/ │  └─────────┬───────────┬───┘
-       │ executor?   │       Không│           │Có
-       └──────┬──────┘            ▼           ▼
-              │           ┌──────────────┐  Kiểm tra lỗi
-              ▼           │ input/lock/  │  nghiệp vụ/log job
-      Thu evidence        │ timeout/I-O? │
-      → giả thuyết        └──────┬───────┘
-              │                  │
-              └────────┬─────────┘
-                       ▼
-      ┌──────────────────────────────────┐
-      │ Chỉ thay đổi nhỏ, có rollback    │
-      │ → xác minh metric/log/build mới  │
-      └──────────────────────────────────┘
-                       │
-                       ▼
-      Không đủ evidence hoặc controller diện rộng?
-      → escalation kèm bundle, timeline, tác động
+```d2 interactive title="Decision tree chẩn đoán"
+direction: down
+incident: Triệu chứng + SEV + incident owner
+scope: "Phạm vi: 1 build, 1 pool\nhay toàn controller?\nGhi timeline UTC"
+executor: Build có executor? {shape: diamond}
+queue: Queue label/node/executor?
+progress: Stage/step có tiến triển? {shape: diamond}
+wait: Input/lock/timeout/I-O?
+job: Kiểm tra lỗi nghiệp vụ/log job
+evidence: Thu evidence, lập giả thuyết
+change: Thay đổi nhỏ, có rollback
+verify: Xác minh metric/log/build mới
+escalate: "Thiếu evidence hoặc sự cố\ncontroller diện rộng?\nEscalation kèm bundle, timeline, impact"
+incident -> scope -> executor
+executor -> queue: Không
+executor -> progress: Có
+progress -> wait: Không
+progress -> job: Có
+queue -> evidence
+wait -> evidence
+job -> evidence
+evidence -> change -> verify -> escalate
 ```
 
 <Callout type="info" title="Thứ tự bằng chứng">
