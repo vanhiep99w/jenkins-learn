@@ -93,7 +93,7 @@ Sao chép `.env.example` thành `.env.local` khi cần kiểm tra metadata bằn
 
 ## Sơ đồ và component docs-kit
 
-Project dùng `@vanhiep99w/docs-kit@0.9.0`. Plugin build-time nằm ở `source.config.ts`, MDX components ở `src/components/mdx.tsx`, CSS ở `src/app/global.css`. Compiler D2/WASM và highlighter không chạy trong browser; static export vẫn đọc được sơ đồ khi tắt JavaScript.
+Project dùng `@vanhiep99w/docs-kit@0.12.0`. Plugin build-time nằm ở `source.config.ts`, MDX components ở `src/components/mdx.tsx`, CSS ở `src/app/global.css`. Compiler D2/WASM và highlighter không chạy trong browser; static export vẫn đọc được sơ đồ khi tắt JavaScript.
 
 Dùng fence `d2` thay ASCII flow/architecture hoặc Mermaid. Giữ cây thư mục, log, payload, output terminal ở dạng text khi đó là cách đọc chính xác hơn. Với sơ đồ lớn, thêm `interactive` để người đọc chủ động mở viewer zoom/pan, xem source và tải SVG; viewer chỉ được tải khi bấm **Explore**.
 
