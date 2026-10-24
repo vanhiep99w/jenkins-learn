@@ -53,7 +53,27 @@ Nếu `npm test` thất bại, build được đánh dấu thất bại và ngư
 
 Jenkins tách việc **điều phối** khỏi việc **thực thi**. Một controller nhận yêu cầu, xếp hàng công việc và lưu trạng thái. Agent cung cấp môi trường chạy lệnh, ví dụ máy Linux có JDK hoặc container có Node.js. Với hệ thống nhỏ, controller có thể chạy tác vụ lab; với production, nên ưu tiên đưa build nặng hoặc không tin cậy sang agent được kiểm soát.
 
-```d2 title="Mô hình hoạt động nhập môn"
+> Playback dưới đây minh họa thứ tự các bước do tác giả chọn; không gửi request thật, không mô phỏng concurrency và tốc độ phát không phải latency. Bạn có thể chạy hoặc xem từng bước.
+
+```d2 title="Mô hình hoạt động nhập môn" mode=flow interactive=true
+# @flow
+# scenarios:
+#   - id: main
+#     label: "Kịch bản minh họa"
+#     steps:
+#       - edge: "(scm -> controller)[0]"
+#         description: "Developer / SCM → Jenkins controller: Commit hoặc webhook"
+#       - edge: "(controller -> controller)[0]"
+#         description: "Jenkins controller → Jenkins controller: Nhận job/Pipeline, xếp queue"
+#       - edge: "(controller -> agent)[0]"
+#         description: "Jenkins controller → Agent: Gửi tác vụ"
+#       - edge: "(agent -> agent)[0]"
+#         description: "Agent → Agent: Checkout, test, build"
+#       - edge: "(agent -> controller)[0]"
+#         description: "Agent → Jenkins controller: Log, trạng thái"
+#       - edge: "(controller -> output)[0]"
+#         description: "Jenkins controller → Nơi lưu trữ / nhóm: Artifact / thông báo"
+# @endflow
 shape: sequence_diagram
 scm: Developer / SCM
 controller: Jenkins controller
