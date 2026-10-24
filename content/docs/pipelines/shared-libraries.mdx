@@ -185,31 +185,7 @@ Khi validation thất bại, ném lỗi có thể hành động và để build 
 
 `resources/` dành cho dữ liệu tĩnh không nhạy cảm. `libraryResource` đọc bằng đường dẫn package-like, không phải filesystem path của agent; vì vậy consumer không nên đoán checkout location. Không đặt secret vào resource: resource là một phần revision library và có thể đi qua SCM, cache, log hoặc review.
 
-> Playback dưới đây minh họa thứ tự các bước do tác giả chọn; không gửi request thật, không mô phỏng concurrency và tốc độ phát không phải latency. Bạn có thể chạy hoặc xem từng bước.
-
-```d2 title="src/, resource và luồng gọi" mode=flow interactive=true
-# @flow
-# scenarios:
-#   - id: main
-#     label: "Kịch bản minh họa"
-#     steps:
-#       - edge: "(C -> J)[0]"
-#         description: "Consumer Jenkinsfile → Jenkins controller: @Library(name@pinned revision)"
-#       - edge: "(J -> R)[0]"
-#         description: "Jenkins controller → SCM retriever: checkout bằng quyền đọc tối thiểu"
-#       - edge: "(R -> J)[0]"
-#         description: "SCM retriever → Jenkins controller: vars/, src/, resources/"
-#       - edge: "(C -> V)[0]"
-#         description: "Consumer Jenkinsfile → vars/safeBuild: safeBuild(checks)"
-#       - edge: "(V -> S)[0]"
-#         description: "vars/safeBuild → src/BuildPlan: validate và tạo data serializable"
-#       - edge: "(S -> V)[0]"
-#         description: "src/BuildPlan → vars/safeBuild: BuildPlan"
-#       - edge: "(V -> P)[0]"
-#         description: "vars/safeBuild → Pipeline runtime: echo resource và trạng thái check"
-#       - edge: "(P -> C)[0]"
-#         description: "Pipeline runtime → Consumer Jenkinsfile: log, lỗi hoặc build result"
-# @endflow
+```d2 title="src/, resource và luồng gọi"
 shape: sequence_diagram
 C: "Consumer Jenkinsfile"
 J: "Jenkins controller"
