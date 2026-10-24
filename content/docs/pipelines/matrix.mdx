@@ -100,8 +100,8 @@ Một `axis` trong `exclude` có thể có nhiều `values`; đó là cách lo�
 
 Matrix fan-out sau khi Jenkins xác định các combination hợp lệ. Mỗi cell xin agent, chạy nested stages và ghi log riêng. Stage đặt sau Matrix là **fan-in**: nó chỉ được chạy sau khi Matrix hoàn tất theo flow bình thường. Vì vậy nó là vị trí phù hợp để tổng hợp report hoặc chuyển sang một kiểm tra tiếp theo, không phải nơi suy đoán cell nào đã chạy từ một file workspace cục bộ.
 
-```d2 title="Fan-out, fan-in và giới hạn combination"
-direction: right
+```d2 title="Fan-out, fan-in và giới hạn combination" layout=tala
+direction: down
 A: "Axes: PLATFORM x JAVA_VERSION"
 B: "Loại excludes"
 C: "linux + JDK 17"

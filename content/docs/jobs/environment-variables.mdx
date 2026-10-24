@@ -101,8 +101,8 @@ Một build đang chạy không phải bảng điều khiển để thay đổi 
 
 Khi cùng tên `LOG_LEVEL` được đặt ở nhiều lớp, hãy đọc từ ngoài vào trong. Scope gần step process nhất sẽ che giá trị của scope ngoài trong thời gian nó hiệu lực.
 
-```d2 title="Sơ đồ precedence của một process"
-direction: right
+```d2 title="Sơ đồ precedence của một process" layout=elk
+direction: down
 baseline: "Controller/global + node/agent\nparameter export lúc bắt đầu build"
 env: "Baseline env.LOG_LEVEL\nprocess LOG_LEVEL"
 pipeline: "Pipeline environment\nLOG_LEVEL=info"

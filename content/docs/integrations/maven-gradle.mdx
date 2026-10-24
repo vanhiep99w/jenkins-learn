@@ -39,8 +39,8 @@ Một build Java tin cậy phải xác định được **JDK nào**, **build to
 
 Sau bài này, bạn có thể chọn wrapper/toolchain phù hợp, tách cache của PR khỏi release, thu report đúng đường dẫn và archive artifact có checksum. Bạn cũng có thể giải thích vì sao test/scan phải hoàn tất trước khi credential publish được bind, và vì sao Jenkins fingerprint không thay SHA-256.
 
-```d2 interactive title="Mục tiêu và luồng build"
-direction: right
+```d2 interactive title="Mục tiêu và luồng build" layout=elk
+direction: down
 A: "SCM revision đã chọn"
 B: "Agent có JDK đã pin"
 C: "Maven Wrapper hoặc Gradle\nWrapper"

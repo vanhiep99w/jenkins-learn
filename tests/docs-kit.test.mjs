@@ -60,6 +60,27 @@ test('every D2 fence exports a labelled SVG in both themes, without client rende
   assert.ok(total > 0, 'No D2 diagrams found');
 });
 
+test('flow and topology diagrams do not regress into unreadable horizontal strips', () => {
+  for (const page of pages) {
+    const diagrams = fences(page.source, 'd2');
+    if (!diagrams.length) continue;
+    const rendered = html(page);
+    for (const theme of ['light', 'dark']) {
+      const svgs = [...rendered.matchAll(new RegExp(`class="d2-diagram-${theme}"[^>]*>\\s*(<svg\\b[^>]*>)`, 'g'))];
+      assert.equal(svgs.length, diagrams.length, page.file);
+      for (const [index, diagram] of diagrams.entries()) {
+        // Sequence width depends on participant count; preserve its message order.
+        if (/^shape:\s*sequence_diagram\s*$/m.test(diagram[1])) continue;
+        const viewBox = /\bviewBox="([^"]+)"/.exec(svgs[index][1]);
+        assert.ok(viewBox, `${page.file}: diagram ${index + 1}, ${theme}`);
+        const [, , width, height] = viewBox[1].split(/\s+/).map(Number);
+        assert.ok(width > 0 && height > 0, page.file);
+        assert.ok(width <= 1200, `${page.file}: diagram ${index + 1}, ${theme} is ${width}px wide; choose a compact layout or split the view`);
+      }
+    }
+  }
+});
+
 test('specialized docs-kit fences render components, not raw YAML code blocks', () => {
   for (const language of ['code-walkthrough', 'terminal-session', 'code-diff', 'protocol-exchange', 'span-waterfall']) {
     let count = 0;

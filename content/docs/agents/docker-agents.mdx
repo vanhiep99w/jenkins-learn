@@ -34,8 +34,8 @@ Docker agent đóng gói toolchain của một build vào container để giảm
 
 Docker không thay Jenkins controller thành một build server. Controller vẫn xếp queue, cấp executor và giữ cấu hình; một Docker-capable agent hoặc Docker cloud mới là nơi nói chuyện với Docker daemon. Bắt đầu từ mô hình controller–agent tại [Tổng quan Jenkins](/docs/getting-started/overview), [Kiến trúc Jenkins](/docs/getting-started/architecture) và [Tổng quan Jenkins Agent](/docs/agents/overview).
 
-```d2 interactive title="Mô hình và phạm vi"
-direction: right
+```d2 interactive title="Mô hình và phạm vi" layout=elk
+direction: down
 A: "Pipeline trong queue"
 B: "Cơ chế cấp môi trường" {
   shape: diamond

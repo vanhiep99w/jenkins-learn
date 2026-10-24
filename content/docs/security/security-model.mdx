@@ -51,8 +51,8 @@ Threat model bắt đầu bằng câu hỏi: **ai có thể đưa dữ liệu n�
 
 ### Sơ đồ threat-model
 
-```d2 interactive title="Sơ đồ threat-model"
-direction: right
+```d2 interactive title="Sơ đồ threat-model" layout=tala
+direction: down
 E: "Build queue"
 T1: "Trust boundary: Internet hoặc\nngười dùng" {
   A: "Người dùng hoặc automation"
@@ -128,8 +128,8 @@ Security realm không quyết định user đó được đọc job, trigger bui
 
 Luồng đúng là:
 
-```d2 title="Authorization strategy quyết định permission"
-direction: right
+```d2 title="Authorization strategy quyết định permission" layout=elk
+direction: down
 request: Request
 realm: Security realm xác thực identity
 auth: Authorization strategy kiểm permission

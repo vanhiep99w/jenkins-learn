@@ -52,8 +52,8 @@ Trước khi tách nhánh, trả lời rõ các câu hỏi sau:
 
 **Fan-out** là điểm Jenkins mở nhiều nhánh. **Fan-in** là điểm chỉ tiếp tục sau khi các nhánh cần thiết đã kết thúc. Fan-in có thể là stage tổng hợp report, đóng gói hoặc bước tiếp theo chỉ hợp lệ khi mọi kiểm tra bắt buộc đều đạt.
 
-```d2 title="Fan-out, fan-in và chi phí điều phối"
-direction: right
+```d2 title="Fan-out, fan-in và chi phí điều phối" layout=elk
+direction: down
 A: "Stage: chuẩn bị revision"
 B: "Fan-out: kiểm tra độc lập"
 C: "Unit checks\nagent / workspace A"

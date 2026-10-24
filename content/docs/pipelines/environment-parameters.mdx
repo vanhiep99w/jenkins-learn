@@ -108,8 +108,8 @@ Lần đầu Jenkins chạy một Jenkinsfile mới có `parameters`, UI của m
 
 Sơ đồ này mô tả thứ tự các scope bao quanh một `sh` trong stage. Scope gần process hơn có thể che cùng tên biến từ scope ngoài trong thời gian nó còn hiệu lực.
 
-```d2 title="Bản đồ scope"
-direction: right
+```d2 title="Bản đồ scope" layout=elk
+direction: down
 baseline: Jenkins/controller, node hoặc agent env
 pipeline: "Pipeline-level environment\nAPP_NAME, LOG_LEVEL=info"
 stage: "Stage-level environment\nLOG_LEVEL=debug"

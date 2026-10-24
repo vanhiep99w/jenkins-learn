@@ -81,8 +81,8 @@ Trên [Jenkins Plugins](https://plugins.jenkins.io/), đánh giá plugin theo nh
 
 Một plugin có thể yêu cầu Jenkins core tối thiểu, Java/runtime, một plugin API hoặc plugin triển khai cụ thể. Các dependency này tạo **dependency graph**: chọn một plugin gốc có thể kéo nhiều dependency chuyển tiếp. Nâng một dependency chung có thể ảnh hưởng nhiều plugin không nằm trong ticket ban đầu.
 
-```d2 interactive title="Tương thích và dependency graph"
-direction: right
+```d2 interactive title="Tương thích và dependency graph" layout=elk
+direction: down
 plugin: Plugin cần thay đổi
 a: Dependency A
 core: Jenkins core tối thiểu
@@ -148,7 +148,7 @@ Một policy thực tế không dùng alias như `latest`. Nó định nghĩa ve
 
 ### Luồng thay đổi một wave
 
-```d2 interactive title="Luồng thay đổi một wave"
+```d2 interactive title="Luồng thay đổi một wave" layout=tala
 direction: right
 inventory: Inventory + SBOM
 review: Review policy/provenance

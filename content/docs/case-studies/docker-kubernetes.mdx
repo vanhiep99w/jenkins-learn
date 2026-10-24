@@ -84,8 +84,8 @@ Sau case study này, bạn có thể:
 
 Controller chỉ điều phối queue, trạng thái và credential policy. Build/scan chạy trên agent `linux && image-builder` không nhận credential publish; push/deploy chạy trên agent `trusted-release` có label tool tương ứng. Labels không phải ACL, nhưng giúp không route stage release sang controller hoặc pool pull request.
 
-```d2 title="Thành phần và ranh giới"
-direction: right
+```d2 title="Thành phần và ranh giới" layout=tala
+direction: down
 git: Git repository {icon: ../../assets/d2/git.svg}
 controller: "Jenkins controller\nđiều phối, không build"
 builder: "Agent image-builder\nbuild + scan + OCI archive" {icon: ../../assets/d2/docker.svg}
@@ -106,8 +106,8 @@ Agent image-builder chỉ lấy source, kéo base image, build/scan và tạo OC
 
 ### Luồng commit đến rollback
 
-```d2 interactive title="Luồng commit đến rollback"
-direction: right
+```d2 interactive title="Luồng commit đến rollback" layout=elk
+direction: down
 A: "Commit đã review"
 B: "Jenkins Pipeline"
 C: "Checkout và test"

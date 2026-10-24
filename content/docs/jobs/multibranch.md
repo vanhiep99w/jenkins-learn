@@ -58,8 +58,8 @@ Ví dụ, job cha `store-ci` có thể tạo các job con `main`, `feature/payme
 
 ### Vòng đời từ sự kiện SCM đến build
 
-```d2 title="Vòng đời từ sự kiện SCM đến build"
-direction: right
+```d2 title="Vòng đời từ sự kiện SCM đến build" layout=elk
+direction: down
 change: Push, tag hoặc Pull Request thay đổi
 trigger: Webhook / lịch quét job cha
 index: Indexing Branch Source + discovery traits

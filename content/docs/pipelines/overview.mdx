@@ -65,8 +65,8 @@ Lợi ích này không có nghĩa mọi `Jenkinsfile` đều an toàn. File đó
 
 Luồng dưới đây là mô hình cơ bản. Trigger có thể là webhook, lịch hoặc thao tác **Build Now**; cách cấu hình SCM và agent cụ thể tùy Jenkins và plugin đang dùng.
 
-```d2 title="Mô hình thực thi của Pipeline"
-direction: right
+```d2 title="Mô hình thực thi của Pipeline" layout=elk
+direction: down
 A: "Commit"
 B: "SCM repository"
 C: "Jenkins job chọn revision"

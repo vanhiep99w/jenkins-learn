@@ -83,8 +83,8 @@ Webhook là HTTP request do dịch vụ SCM gửi tới endpoint của Jenkins h
 
 ### Luồng sự kiện và revision
 
-```d2 title="Luồng sự kiện và revision"
-direction: right
+```d2 title="Luồng sự kiện và revision" layout=tala
+direction: down
 dev: Developer push/PR
 event: SCM event + delivery ID, repo, ref, revision
 endpoint: Reverse proxy / SCM plugin endpoint

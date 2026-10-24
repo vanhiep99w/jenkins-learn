@@ -47,8 +47,8 @@ Một vòng đời điển hình là:
 4. **Cleanup.** `deleteDir()` hoặc policy plugin xóa dữ liệu do build sở hữu sau khi evidence cần thiết đã được lưu. Với agent ephemeral, pod/VM có thể bị hủy sau build; đây là lớp dọn bổ sung, không thay thế việc thiết kế output và secret an toàn.
 5. **Tái sử dụng hoặc mất workspace.** Agent cố định có thể tái sử dụng thư mục cho run sau. Agent ephemeral, disk cleanup của hệ điều hành, node offline hoặc agent bị thay thế có thể làm workspace biến mất bất kỳ lúc nào.
 
-```d2 title="Từ queue đến cleanup"
-direction: right
+```d2 title="Từ queue đến cleanup" layout=elk
+direction: down
 queue: Queue
 agent: Agent/executor
 workspace: Workspace

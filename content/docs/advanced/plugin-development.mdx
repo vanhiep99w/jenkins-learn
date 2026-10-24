@@ -49,8 +49,8 @@ Plugin không nên là nơi đặt logic nghiệp vụ độc lập duy nhất. 
 
 ### Kiến trúc và vòng đời
 
-```d2 interactive title="Kiến trúc và vòng đời"
-direction: right
+```d2 interactive title="Kiến trúc và vòng đời" layout=tala
+direction: down
 source: Source / test / POM
 controller: Jenkins controller
 registry: Extension registry
@@ -424,8 +424,8 @@ CI nên chạy nhanh: format/lint, unit và harness test trên pull request; ch�
 
 ### Luồng build–test–release
 
-```d2 interactive title="Luồng build–test–release"
-direction: right
+```d2 interactive title="Luồng build–test–release" layout=elk
+direction: down
 pr: Pull request
 format: Format + static analysis
 fix: Sửa source, không publish

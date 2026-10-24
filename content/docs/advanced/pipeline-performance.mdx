@@ -113,7 +113,7 @@ Metrics cho biết tín hiệu tổng quát; đối chiếu timestamp của chú
 
 Controller nhận trigger, xếp queue, diễn giải Pipeline, lưu flow state và phục vụ UI/API. Agent nhận allocation rồi chạy `checkout`, compiler, test, scan và upload từ workspace. Không chuyển vòng lặp xử lý dữ liệu lớn về Groovy trên controller chỉ vì lệnh có thể viết trong Jenkinsfile.
 
-```d2 interactive title="Controller, agent và critical path"
+```d2 interactive title="Controller, agent và critical path" layout=tala
 direction: right
 A: "Trigger / SCM event"
 B: "Controller: queue và flow engine"

@@ -38,7 +38,7 @@ Labels quyết định *loại môi trường* mà một job được phép dùn
 
 Controller nhận build, đưa yêu cầu vào queue, rồi tìm một node đang `Online` thỏa label expression và có executor trống. Chỉ khi đó agent mới nhận được allocation và workspace để chạy lệnh. Vì vậy, một executor rảnh trên agent `windows` không giúp được job đang yêu cầu `linux && docker`.
 
-```d2 title="Mô hình định tuyến"
+```d2 title="Mô hình định tuyến" layout=tala
 direction: right
 job: Job / Pipeline
 queue: "Build Queue\nonline + label + policy\n+ executor trống"

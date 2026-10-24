@@ -67,8 +67,8 @@ CI kết thúc khi evidence tạo artifact và config change đã có. CD theo G
 
 Luồng dưới pin một digest xuyên suốt. Digest trong ví dụ là giá trị minh họa hợp lệ về hình dạng; thay bằng digest do registry và evidence của chính build tạo ra.
 
-```d2 interactive title="Kiến trúc và luồng thay đổi"
-direction: right
+```d2 interactive title="Kiến trúc và luồng thay đổi" layout=elk
+direction: down
 A: "Commit app repo"
 B: "Jenkins CI\ntest scan build"
 C: "Artifact immutable\ndigest + SBOM +\nprovenance/signature"

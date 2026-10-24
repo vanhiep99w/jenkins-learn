@@ -36,8 +36,8 @@ description: "Chia Jenkins Pipeline thành stage và step rõ ràng, dễ quan s
 
 Một **stage** là một chặng có kết quả mà con người cần nhận biết, chẳng hạn `Unit test` hoặc `Build package`. Một **step** là hành động cụ thể bên trong chặng đó, chẳng hạn `sh 'npm test'`. Agent là môi trường thực thi: nó quyết định hệ điều hành, toolchain, workspace và executor thật sự chạy step.
 
-```d2 title="Mô hình stage step và agent"
-direction: right
+```d2 title="Mô hình stage step và agent" layout=elk
+direction: down
 commit: Commit
 controller: Controller xếp hàng
 agent: Agent phù hợp

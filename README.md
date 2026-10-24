@@ -110,6 +110,8 @@ agent -> artifact: Build + test
 ```
 ````
 
+Chọn layout theo từng sơ đồ, không đổi engine toàn site: thêm `layout=tala` khi nhiều nhánh cần bố cục gọn; với chuỗi bước dài, thử `direction: down` trên ELK hoặc TALA. Giữ nguyên nhãn điều kiện và nhánh lỗi. Kiểm tra SVG thực tế thay vì chỉ đổi engine: `test:docs` chặn flow/topology rộng quá 1200 đơn vị SVG; sequence diagram được giữ riêng để không đảo thứ tự message. Sơ đồ dọc dùng chiều cao của bài thay vì ép toàn bộ vào một màn hình; zoom/pan và fullscreen vẫn có sẵn.
+
 Ví dụ đường dẫn icon trên dành cho file trong `content/docs/<category>/`. Icon từ [D2 Icons](https://icons.d2lang.com/) được lưu tại `content/assets/d2/`, có nguồn trong README của thư mục và được nhúng vào SVG lúc build; không phụ thuộc host icon khi đọc offline. Chỉ thêm icon giúp nhận diện công nghệ, không gắn logo tùy tiện cho mọi node. Đặt `title` ngắn, không dùng dấu backtick trong metadata fence. Nhãn node nhiều dòng dùng `\n`; tránh ID trùng keyword D2 như `steps`, `layers`, `scenarios`.
 
 | Fence | Khi nên dùng | Ví dụ thực tế |

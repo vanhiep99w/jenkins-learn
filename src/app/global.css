@@ -29,6 +29,13 @@ samp {
   font-family: var(--font-mono);
 }
 
+/* Fit tall inline diagrams to the article width, not a single screen's height.
+   The fullscreen viewer keeps its own viewport-sized fit and zoom/pan controls. */
+#nd-page .d2-interactive {
+  --d2-preview-max-height: 160rem;
+  --d2-viewport-max-height: 160rem;
+}
+
 /* Let the docs layout use the full viewport instead of the 97rem default. */
 #nd-docs-layout {
   --fd-layout-width: 100vw;

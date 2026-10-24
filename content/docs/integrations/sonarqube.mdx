@@ -53,8 +53,8 @@ Sau bài này, bạn có thể nối một revision **trusted** Jenkins với pr
 | Jenkins Pipeline | Chạy command, chờ task và quyết định flow | Token, TLS, project permission hay webhook tự đúng. |
 | Webhook | Báo task/Gate result về Jenkins | Authentication của scanner hoặc branch protection SCM. |
 
-```d2 interactive title="Các thành phần và ranh giới"
-direction: right
+```d2 interactive title="Các thành phần và ranh giới" layout=elk
+direction: down
 A: "PR hoặc fork"
 B: "Agent isolated: unit và coverage"
 C: "Không remote Sonar, không\ncredential"
